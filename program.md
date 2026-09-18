@@ -1,114 +1,193 @@
-# autoresearch
+# autoresearch: Jigsaw Unintended Bias in Toxicity Classification
 
-This is an experiment to have the LLM do its own research.
+Optimize a toxicity classifier on a fixed local validation set. **Maximize `score`**
+from `prepare.py`; larger is better. Run one experiment at a time on the agreed
+hardware. Treat validation as a development set, not an unbiased final test set.
 
-## Setup
+## State of this task branch
 
-To set up a new experiment, work with the user to:
+`codex/jigsaw-unintended-bias` provides Jigsaw data preparation and evaluation.
+**The upstream `train.py` still implements language-model pretraining and will not
+run with this `prepare.py`. It must be rewritten for Jigsaw before experiments.**
+The upstream README describes the original task, not this branch's workflow.
 
-1. **Agree on a run tag**: propose a tag based on today's date (e.g. `mar5`). The branch `autoresearch/<tag>` must not already exist — this is a fresh run.
-2. **Create the branch**: `git checkout -b autoresearch/<tag>` from current master.
-3. **Read the in-scope files**: The repo is small. Read these files for full context:
-   - `README.md` — repository context.
-   - `prepare.py` — fixed constants, data prep, tokenizer, dataloader, evaluation. Do not modify.
-   - `train.py` — the file you modify. Model architecture, optimizer, training loop.
-4. **Verify data exists**: Check that `~/.cache/autoresearch/` contains data shards and a tokenizer. If not, tell the human to run `uv run prepare.py`.
-5. **Initialize results.tsv**: Create `results.tsv` with just the header row. The baseline will be recorded after the first run.
-6. **Confirm and go**: Confirm setup looks good.
+Prepare one shared Jigsaw baseline before forking comparable research runs:
 
-Once you get confirmation, kick off the experimentation.
+1. Read this file, `prepare.py`, `train.py`, and the dependency configuration.
+2. Prepare and verify one dataset contract using the commands below.
+3. Adapt `train.py` once to load the fixed data, train a toxicity classifier,
+   generate probabilities, save its checkpoint and predictions, and evaluate.
+4. Run and validate that baseline. Save its metrics, data manifest hash, code
+   commit, random seeds, dependency versions, hardware, and initialization assets.
+5. Commit the shared baseline implementation. Record that immutable commit as
+   the starting point for every comparison group. Do not independently develop
+   a different baseline for each research agent or comparison group.
 
-## Experimentation
+This common initialization is distinct from the experimental search. Decide
+before comparisons whether its runtime and assets are excluded from the budget;
+apply the same decision to every group. When comparing with MLEvolve, also align
+its actual baseline, model/data access, split, scorer, resources, and budget.
 
-Each experiment runs on a single GPU. The training script runs for a **fixed time budget of 5 minutes** (wall clock training time, excluding startup/compilation). You launch it simply as: `uv run train.py`.
+## Fixed data preparation
 
-**What you CAN do:**
-- Modify `train.py` — this is the only file you edit. Everything is fair game: model architecture, optimizer, hyperparameters, training loop, batch size, model size, etc.
+Use public competition data already supplied by the user. Do not fetch or inspect
+private MLE-bench labels, use an online hidden scoring service, or use test labels
+for any stage of development. Keep data and outputs on Nautilus persistent
+storage such as `/workspace`, not the container's ephemeral root filesystem.
 
-**What you CANNOT do:**
-- Modify `prepare.py`. It is read-only. It contains the fixed evaluation, data loading, tokenizer, and training constants (time budget, sequence length, etc).
-- Install new packages or add dependencies. You can only use what's already in `pyproject.toml`.
-- Modify the evaluation harness. The `evaluate_bpb` function in `prepare.py` is the ground truth metric.
+Run preparation once before the comparison groups start:
 
-**The goal is simple: get the lowest val_bpb.** Since the time budget is fixed, you don't need to worry about training time — it's always 5 minutes. Everything is fair game: change the architecture, the optimizer, the hyperparameters, the batch size, the model size. The only constraint is that the code runs without crashing and finishes within the time budget.
+```bash
+uv run prepare.py prepare \
+  --data-dir /workspace/data/mlebench/jigsaw-unintended-bias-in-toxicity-classification/prepared/public \
+  --output-dir /workspace/autoresearch/results/jigsaw-data/seed-42 \
+  --seed 42 \
+  --validation-fraction 0.05
 
-**VRAM** is a soft constraint. Some increase is acceptable for meaningful val_bpb gains, but it should not blow up dramatically.
-
-**Simplicity criterion**: All else being equal, simpler is better. A small improvement that adds ugly complexity is not worth it. Conversely, removing something and getting equal or better results is a great outcome — that's a simplification win. When evaluating whether to keep a change, weigh the complexity cost against the improvement magnitude. A 0.001 val_bpb improvement that adds 20 lines of hacky code? Probably not worth it. A 0.001 val_bpb improvement from deleting code? Definitely keep. An improvement of ~0 but much simpler code? Keep.
-
-**The first run**: Your very first run should always be to establish the baseline, so you will run the training script as is.
-
-## Output format
-
-Once the script finishes it prints a summary like this:
-
-```
----
-val_bpb:          0.997900
-training_seconds: 300.1
-total_seconds:    325.9
-peak_vram_mb:     45060.2
-mfu_percent:      39.80
-total_tokens_M:   499.6
-num_steps:        953
-num_params_M:     50.3
-depth:            8
+export AUTORESEARCH_JIGSAW_DIR=/workspace/autoresearch/results/jigsaw-data/seed-42
+uv run prepare.py verify --prepared-dir "$AUTORESEARCH_JIGSAW_DIR"
 ```
 
-Note that the script is configured to always stop after 5 minutes, so depending on the computing platform of this computer the numbers might look different. You can extract the key metric from the log file:
+The output contains `train.csv`, `validation.csv`, `test.csv`, `split.npz`, and
+`manifest.json`. Reuse these exact artifacts across runs. The environment
+variable selects the prepared directory; without it, the default is the
+repository's `results/jigsaw-data` directory. Set it again in each new Pod or
+configure it in the Pod definition.
 
+**The same seed does not guarantee the same split across implementations.**
+The standalone preparer uses its own deterministic NumPy stratified split.
+For an existing MLEvolve comparison, add
+`--mlevolve-contract /absolute/path/to/existing/contract` to the preparation
+command to import its supported split contract. Verify source data, resulting
+row IDs, and scorer compatibility before treating the groups as comparable.
+Omit `--seed` and `--validation-fraction` to inherit the imported contract's
+settings; explicitly supplied values must match. Use a separate output directory
+for each different contract or seed.
+Do not silently generate a new split when the intended contract cannot be used.
+
+Preparation is independent of a particular model/tokenizer. Changing a model
+may require new model-dependent caches, but must preserve these fixed row IDs
+and labels. Fit vocabularies, feature statistics, and other learned transforms
+only on training rows. Key derived caches by the data contract and transform
+configuration; never reuse an incompatible cache.
+
+## Training and evaluation interface
+
+`train.py` should use these fixed helpers:
+
+```python
+from prepare import load_data, evaluate_predictions
+
+train_df, validation_df, test_df = load_data()
+# Fit only on train_df; produce probabilities in validation_df row order.
+metrics = evaluate_predictions(validation_probabilities)
+print(f"score: {metrics['score']:.8f}")
 ```
-grep "^val_bpb:" run.log
+
+Both helpers accept `prepared_dir` explicitly when needed. Training and
+validation tables contain `id`, `comment_text`, `target`, and the fixed identity
+columns. The test table contains `id` and `comment_text`. Training may use soft
+toxicity targets; scoring uses the scorer's fixed threshold at 0.5.
+
+For durable, independently checkable scoring, write
+`validation_predictions.csv` with exactly `id,prediction`, in validation row
+order, with one finite probability in `[0, 1]` per row. Then run:
+
+```bash
+uv run prepare.py evaluate \
+  --prepared-dir "$AUTORESEARCH_JIGSAW_DIR" \
+  --predictions results/RUN_TAG/EXPERIMENT_ID/validation_predictions.csv \
+  --output results/RUN_TAG/EXPERIMENT_ID/metrics.json
 ```
 
-## Logging results
+The fixed scorer version is `jubias-continuous-auc-v1`. It uses continuous
+prediction scores, with ties handled by AUC ranking, rather than thresholding
+predictions into classes. The final score is 25% overall AUC plus 75% bias score.
+The bias score averages the exponent -5 power means of subgroup AUC, BPSN AUC
+(background positive, subgroup negative), and BNSP AUC (background negative,
+subgroup positive) across these nine identity groups:
 
-When an experiment is done, log it to `results.tsv` (tab-separated, NOT comma-separated — commas break in descriptions).
+`male`, `female`, `homosexual_gay_or_lesbian`, `christian`, `jewish`, `muslim`,
+`black`, `white`, and `psychiatric_or_mental_illness`.
 
-The TSV has a header row and 5 columns:
+Identity membership uses the fixed threshold at 0.5. Use the implementation's
+exact missing-value and validity rules. An invalid or undefined metric is a
+failed evaluation; do not drop groups or substitute fabricated values. Compare
+only scores from the same verified data contract and scorer version.
 
-```
-commit	val_bpb	memory_gb	status	description
-```
+## Research run setup and boundaries
 
-1. git commit hash (short, 7 chars)
-2. val_bpb achieved (e.g. 1.234567) — use 0.000000 for crashes
-3. peak memory in GB, round to .1f (e.g. 12.3 — divide peak_vram_mb by 1024) — use 0.0 for crashes
-4. status: `keep`, `discard`, or `crash`
-5. short text description of what this experiment tried
+After the shared baseline is committed, create a fresh run branch from it:
 
-Example:
-
-```
-commit	val_bpb	memory_gb	status	description
-a1b2c3d	0.997900	44.0	keep	baseline
-b2c3d4e	0.993200	44.2	keep	increase LR to 0.04
-c3d4e5f	1.005000	44.0	discard	switch to GeLU activation
-d4e5f6g	0.000000	0.0	crash	double model width (OOM)
+```bash
+git switch -c codex/jigsaw-RUN_TAG codex/jigsaw-unintended-bias
 ```
 
-## The experiment loop
+Use the recorded baseline commit instead of the branch name if that branch has
+moved. Preserve unrelated user changes. Keep run artifacts under
+`results/RUN_TAG/` and initialize `results/RUN_TAG/results.tsv`.
 
-The experiment runs on a dedicated branch (e.g. `autoresearch/mar5` or `autoresearch/mar5-gpu0`).
+Before starting, establish the authorized stopping condition: total runtime,
+experiment count, or an explicitly authorized unbounded run. Do not assume
+unlimited execution or invent a numerical budget. Proceed under an already
+specified budget without requesting another confirmation.
 
-LOOP FOREVER:
+During experiments:
 
-1. Look at the git state: the current branch/commit we're on
-2. Tune `train.py` with an experimental idea by directly hacking the code.
-3. git commit
-4. Run the experiment: `uv run train.py > run.log 2>&1` (redirect everything — do NOT use tee or let output flood your context)
-5. Read out the results: `grep "^val_bpb:\|^peak_vram_mb:" run.log`
-6. If the grep output is empty, the run crashed. Run `tail -n 50 run.log` to read the Python stack trace and attempt a fix. If you can't get things to work after more than a few attempts, give up.
-7. Record the results in the tsv (NOTE: do not commit the results.tsv file, leave it untracked by git)
-8. If val_bpb improved (lower), you "advance" the branch, keeping the git commit
-9. If val_bpb is equal or worse, you git reset back to where you started
+- Modify `train.py` for model architecture, optimization, features, and training.
+- Keep `prepare.py`, the prepared data, split, scoring rules, and this protocol
+  fixed. Do not train on validation/test labels or incorporate validation rows
+  into preprocessing fits. Do not tune against hidden test results.
+- Use the installed, agreed dependency set. Do not install new packages or
+  change dependency configuration during search. Any needed additions belong
+  in common initialization before freezing all comparison groups.
+- Use only agreed pretrained assets and external data; preload and share them
+  under the same rules across groups. Log seeds and relevant configuration.
+- Maintain the agreed GPU count, hardware allocation, and parallelism.
 
-The idea is that you are a completely autonomous researcher trying things out. If they work, keep. If they don't, discard. And you're advancing the branch so that you can iterate. If you feel like you're getting stuck in some way, you can rewind but you should probably do this very very sparingly (if ever).
+## Time-controlled comparisons
 
-**Timeout**: Each experiment should take ~5 minutes total (+ a few seconds for startup and eval overhead). If a run exceeds 10 minutes, kill it and treat it as a failure (discard and revert).
+This Markdown file and `prepare.py` **do not enforce a runtime deadline**.
+Before a time-controlled comparison, configure an external supervisor/watchdog
+to control the agent and all training subprocesses. No supervisor is supplied
+by this task adaptation. Do not claim a strict limit without one.
 
-**Crashes**: If a run crashes (OOM, or a bug, or etc.), use your judgment: If it's something dumb and easy to fix (e.g. a typo, a missing import), fix it and re-run. If the idea itself is fundamentally broken, just skip it, log "crash" as the status in the tsv, and move on.
+For an end-to-end budget, use one monotonic deadline that includes agent
+reasoning, edits, tool/model waits, initialization, compilation, training,
+evaluation, artifact writes, and retries. Failures never reset that deadline.
+Set any per-experiment limits separately, consistently across groups. Reserve
+time for evaluation and durable output; do not start work that cannot finish.
 
-**NEVER STOP**: Once the experiment loop has begun (after the initial setup), do NOT pause to ask the human if you should continue. Do NOT ask "should I keep going?" or "is this a good stopping point?". The human might be asleep, or gone from a computer and expects you to continue working *indefinitely* until you are manually stopped. You are autonomous. If you run out of ideas, think harder — read papers referenced in the code, re-read the in-scope files for new angles, try combining previous near-misses, try more radical architectural changes. The loop runs until the human interrupts you, period.
+Only accept results whose full evaluation and required artifacts completed
+before the deadline. At expiry, stop new work, have the supervisor cancel
+remaining processes, and return the best previously valid result. Log timeout
+and cleanup latency separately. If no valid result finished, report failure.
+If the protocol instead permits evaluation after search, call it a search-only
+budget and fix that rule for every group in advance.
 
-As an example use case, a user might leave you running while they sleep. If each experiment takes you ~5 minutes then you can run approx 12/hour, for a total of about 100 over the duration of the average human sleep. The user then wakes up to experimental results, all completed by you while they slept!
+## Experiment loop and records
+
+1. Check the branch, verified data contract, remaining budget, and current best.
+2. Form one hypothesis, change `train.py`, and record its exact code commit.
+3. Run `uv run train.py` under the configured supervisor, redirecting output to
+   that experiment's own `run.log`. Save configuration, checkpoint, validation
+   predictions, metrics, elapsed time, and peak memory in the same directory.
+4. Verify successful completion and score the saved predictions with the fixed
+   evaluator. Append the result to the durable TSV immediately.
+5. Keep a higher valid score. Prefer simplicity on a true tie under the agreed
+   tie rule. Otherwise restore the prior best `train.py` without removing logs,
+   candidate commits, or unrelated changes. Record failed attempts and retries.
+6. Continue until the authorized stopping condition, then report the best
+   commit, score, contract, artifact paths, and consumed budget.
+
+Use this tab-separated header; leave unavailable numeric fields empty, never
+encode a crash as a zero score:
+
+```text
+experiment_id\tcommit\tscore\telapsed_seconds\tpeak_vram_mb\tstatus\tartifact_dir\tdescription
+```
+
+Statuses are `baseline`, `keep`, `discard`, `crash`, or `timeout`. Keep these
+records and per-experiment artifacts outside destructive Git rollback paths;
+`results/` is the intended persistent, untracked output directory. Save the
+current best after each completed experiment instead of waiting until the end.

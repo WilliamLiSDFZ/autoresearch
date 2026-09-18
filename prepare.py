@@ -1,389 +1,438 @@
-"""
-One-time data preparation for autoresearch experiments.
-Downloads data shards and trains a BPE tokenizer.
+"""Fixed public-data preparation and evaluation for Jigsaw Unintended Bias.
 
-Usage:
-    python prepare.py                  # full prep (download + tokenizer)
-    python prepare.py --num-shards 8   # download only 8 shards (for testing)
-
-Data and tokenizer are stored in ~/.cache/autoresearch/.
+Run `python prepare.py --help` for preparation, verification and scoring commands.
+Only NumPy and pandas are required: preparation and evaluation work without a GPU.
+This task adapter replaces the upstream language-model/BPE preparation API.
 """
 
-import os
-import sys
-import time
-import math
 import argparse
-import pickle
-from multiprocessing import Pool
+import hashlib
+import json
+import math
+import os
+import tempfile
+from pathlib import Path
 
-import requests
-import pyarrow.parquet as pq
-import rustbpe
-import tiktoken
-import torch
+import numpy as np
+import pandas as pd
 
-# ---------------------------------------------------------------------------
-# Constants (fixed, do not modify)
-# ---------------------------------------------------------------------------
+TASK_ID = "jigsaw-unintended-bias-in-toxicity-classification"
+METRIC_VERSION = "jubias-continuous-auc-v1"
+SPLIT_METHOD = "autoresearch-numpy-stratified-target-v1"
+IDENTITIES = [
+    "male", "female", "homosexual_gay_or_lesbian", "christian", "jewish",
+    "muslim", "black", "white", "psychiatric_or_mental_illness",
+]
+LABEL_COLUMNS = ["target", *IDENTITIES]
+TRAIN_COLUMNS = ["id", "comment_text", *LABEL_COLUMNS]
+TEST_COLUMNS = ["id", "comment_text"]
+ARTIFACT_FILES = {"train.csv", "validation.csv", "test.csv", "split.npz"}
+DEFAULT_SEED = 42
+DEFAULT_VALIDATION_FRACTION = 0.05
 
-MAX_SEQ_LEN = 2048       # context length
-TIME_BUDGET = 300        # training time budget in seconds (5 minutes)
-EVAL_TOKENS = 40 * 524288  # number of tokens for val eval
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+def prepared_directory(directory=None):
+    """Default stays with the checkout, so /workspace checkouts persist on a PVC."""
+    return Path(directory or os.environ.get("AUTORESEARCH_JIGSAW_DIR") or
+                Path(__file__).resolve().parent / "results" / "jigsaw-data").expanduser().resolve()
 
-CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "autoresearch")
-DATA_DIR = os.path.join(CACHE_DIR, "data")
-TOKENIZER_DIR = os.path.join(CACHE_DIR, "tokenizer")
-BASE_URL = "https://huggingface.co/datasets/karpathy/climbmix-400b-shuffle/resolve/main"
-MAX_SHARD = 6542 # the last datashard is shard_06542.parquet
-VAL_SHARD = MAX_SHARD  # pinned validation shard (shard_06542)
-VAL_FILENAME = f"shard_{VAL_SHARD:05d}.parquet"
-VOCAB_SIZE = 8192
 
-# BPE split pattern (GPT-4 style, with \p{N}{1,2} instead of {1,3})
-SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,2}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
+def digest(path):
+    checksum = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            checksum.update(block)
+    return checksum.hexdigest()
 
-SPECIAL_TOKENS = [f"<|reserved_{i}|>" for i in range(4)]
-BOS_TOKEN = "<|reserved_0|>"
 
-# ---------------------------------------------------------------------------
-# Data download
-# ---------------------------------------------------------------------------
+def _object_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
-def download_single_shard(index):
-    """Download one parquet shard with retries. Returns True on success."""
-    filename = f"shard_{index:05d}.parquet"
-    filepath = os.path.join(DATA_DIR, filename)
-    if os.path.exists(filepath):
-        return True
 
-    url = f"{BASE_URL}/{filename}"
-    max_attempts = 5
-    for attempt in range(1, max_attempts + 1):
+def _read_json(path):
+    with Path(path).open(encoding="utf-8") as stream:
+        return json.load(stream)
+
+
+def _write_json(path, value):
+    """Publish a complete JSON file, without exposing a partially written result."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".pending-", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, indent=2, ensure_ascii=False, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def _check_hashes(directory, hashes, required):
+    directory = Path(directory).resolve()
+    if not isinstance(hashes, dict) or set(hashes) != set(required):
+        raise ValueError("Manifest must cover exactly the required artifact files")
+    for name, expected in hashes.items():
+        artifact = directory / name
+        if (artifact.is_symlink() or not artifact.resolve().is_relative_to(directory)
+                or not artifact.is_file() or digest(artifact) != expected):
+            raise ValueError(f"Missing or changed artifact: {artifact}")
+
+
+def _check_ids(frame, name):
+    ids = frame["id"]
+    if frame.empty or ids.isna().any() or not ids.is_unique or ids.str.strip().eq("").any():
+        raise ValueError(f"{name}: IDs must be nonempty, unique strings; data must not be empty")
+
+
+def _check_labels(answers):
+    missing = set(LABEL_COLUMNS) - set(answers.columns)
+    if missing:
+        raise ValueError(f"Missing Jigsaw label columns: {sorted(missing)}")
+    target = answers["target"].to_numpy(dtype=np.float64)
+    if not np.isfinite(target).all() or ((target < 0) | (target > 1)).any():
+        raise ValueError("Targets must be finite values in [0, 1]")
+    for identity in IDENTITIES:
+        values = answers[identity].to_numpy(dtype=np.float64)
+        # Missing identity annotations are background, matching the MLEvolve metric.
+        observed = values[~np.isnan(values)]
+        if not np.isfinite(observed).all() or ((observed < 0) | (observed > 1)).any():
+            raise ValueError(f"Invalid identity annotations: {identity}")
+
+
+def _read_frame(path, columns):
+    # Comment strings such as "NA" and "null" are text, not missing annotations.
+    converters = {"comment_text": str} if "comment_text" in columns else None
+    frame = pd.read_csv(path, dtype={"id": str}, usecols=columns,
+                        converters=converters)[columns]
+    _check_ids(frame, str(path))
+    if "comment_text" in columns:
+        frame["comment_text"] = frame["comment_text"].fillna("").astype(str)
+    if "target" in columns:
+        _check_labels(frame)
+    return frame
+
+
+def _probabilities(values, rows):
+    values = np.asarray(values, dtype=np.float64)
+    if values.shape != (rows,) or not np.isfinite(values).all():
+        raise ValueError(f"Expected {rows} finite scalar probabilities; got {values.shape}")
+    if ((values < 0) | (values > 1)).any():
+        raise ValueError("Predictions must be probabilities in [0, 1]")
+    return values
+
+
+def _auc(labels, values):
+    """Mann-Whitney ROC-AUC with average ranks for ties; no sklearn dependency."""
+    positives = int(labels.sum())
+    negatives = len(labels) - positives
+    if not positives or not negatives:
+        raise ValueError("ROC-AUC requires both positive and negative examples")
+    order = np.argsort(values, kind="mergesort")
+    ordered = values[order]
+    ends = np.r_[np.flatnonzero(ordered[1:] != ordered[:-1]) + 1, len(ordered)]
+    starts = np.r_[0, ends[:-1]]
+    ranks = np.repeat((starts + ends + 1) / 2.0, ends - starts)
+    rank_sum = ranks[labels[order]].sum()
+    return float((rank_sum - positives * (positives + 1) / 2.0) / (positives * negatives))
+
+
+def score_components(answers, values):
+    """Official composite metric on a public holdout, higher is better.
+
+    Continuous predictions are NEVER thresholded. Ground-truth target and identity
+    annotations use >= 0.5. Reject undefined components instead of dropping groups.
+    This is not a Kaggle hidden-test or MLE-bench private-test score.
+    """
+    _check_labels(answers)
+    values = _probabilities(values, len(answers))
+    labels = answers["target"].to_numpy(dtype=np.float64) >= 0.5
+
+    def component(mask, name):
+        positive = int(labels[mask].sum())
+        negative = int(mask.sum()) - positive
+        if not positive or not negative:
+            raise ValueError(f"Undefined AUC for {name}; do not drop metric terms")
+        return {"auc": _auc(labels[mask], values[mask]), "rows": positive + negative,
+                "positive_count": positive, "negative_count": negative}
+
+    overall = component(np.ones(len(labels), dtype=bool), "overall")
+    parts = {"subgroup": [], "bpsn": [], "bnsp": []}
+    identities = {}
+    for identity in IDENTITIES:
+        group = answers[identity].fillna(0).to_numpy(dtype=np.float64) >= 0.5
+        masks = (group, (group & ~labels) | (~group & labels),
+                 (group & labels) | (~group & ~labels))
+        identities[identity] = {}
+        for kind, mask in zip(parts, masks):
+            term = component(mask, f"{identity}/{kind}")
+            parts[kind].append(term["auc"])
+            identities[identity][kind] = term
+
+    def power_mean(values):
+        return 0.0 if min(values) == 0 else float(np.mean(np.power(values, -5.0)) ** -0.2)
+
+    means = {kind: power_mean(values) for kind, values in parts.items()}
+    score = 0.25 * overall["auc"] + 0.25 * sum(means.values())
+    return {"metric_version": METRIC_VERSION, "score": score, "maximize": True,
+            "overall_auc": overall["auc"], "power_means": means, "identities": identities}
+
+
+def _check_split(fit, validation, rows):
+    for indices in (fit, validation):
+        if indices.ndim != 1 or indices.dtype.kind not in "iu" or len(indices) == 0:
+            raise ValueError("Split indices must be nonempty one-dimensional integer arrays")
+    combined = np.concatenate([fit, validation])
+    if len(combined) != rows or not np.array_equal(np.sort(combined), np.arange(rows)):
+        raise ValueError("Train/validation split must cover every source row exactly once")
+
+
+def _make_split(train, seed, fraction):
+    """Own versioned stratified split; import a contract for exact MLEvolve parity."""
+    labels = train["target"].to_numpy() >= 0.5
+    groups = [np.flatnonzero(~labels), np.flatnonzero(labels)]
+    counts = np.array([len(group) for group in groups])
+    validation_rows = math.ceil(len(train) * fraction)
+    if min(counts) < 2 or not 2 <= validation_rows <= len(train) - 2:
+        raise ValueError("Too few examples for a stratified training/validation split")
+    desired = counts * validation_rows / len(train)
+    allocated = np.clip(np.floor(desired).astype(int), 1, counts - 1)
+    while allocated.sum() != validation_rows:
+        if allocated.sum() < validation_rows:
+            priorities = np.where(allocated < counts - 1, desired - allocated, -np.inf)
+            allocated[np.argmax(priorities)] += 1
+        else:
+            priorities = np.where(allocated > 1, allocated - desired, -np.inf)
+            allocated[np.argmax(priorities)] -= 1
+    for attempt in range(20):
+        rng = np.random.default_rng(seed + attempt)
+        shuffled = [rng.permutation(group) for group in groups]
+        validation = np.sort(np.concatenate([g[:n] for g, n in zip(shuffled, allocated)]))
+        fit = np.sort(np.concatenate([g[n:] for g, n in zip(shuffled, allocated)]))
         try:
-            response = requests.get(url, stream=True, timeout=30)
-            response.raise_for_status()
-            temp_path = filepath + ".tmp"
-            with open(temp_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        f.write(chunk)
-            os.rename(temp_path, filepath)
-            print(f"  Downloaded {filename}")
-            return True
-        except (requests.RequestException, IOError) as e:
-            print(f"  Attempt {attempt}/{max_attempts} failed for {filename}: {e}")
-            for path in [filepath + ".tmp", filepath]:
-                if os.path.exists(path):
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
-            if attempt < max_attempts:
-                time.sleep(2 ** attempt)
-    return False
+            score_components(train.iloc[validation], np.full(len(validation), 0.5))
+            return fit, validation, attempt
+        except ValueError:
+            # Retry only for defined AUC terms, never to select a better model score.
+            continue
+    raise ValueError("Cannot obtain all 27 bias AUC terms in 20 splits. Before starting "
+                     "comparisons, use a larger validation fraction or a valid shared contract.")
 
 
-def download_data(num_shards, download_workers=8):
-    """Download training shards + pinned validation shard."""
-    os.makedirs(DATA_DIR, exist_ok=True)
-    num_train = min(num_shards, MAX_SHARD)
-    ids = list(range(num_train))
-    if VAL_SHARD not in ids:
-        ids.append(VAL_SHARD)
-
-    # Count what's already downloaded
-    existing = sum(1 for i in ids if os.path.exists(os.path.join(DATA_DIR, f"shard_{i:05d}.parquet")))
-    if existing == len(ids):
-        print(f"Data: all {len(ids)} shards already downloaded at {DATA_DIR}")
-        return
-
-    needed = len(ids) - existing
-    print(f"Data: downloading {needed} shards ({existing} already exist)...")
-
-    workers = max(1, min(download_workers, needed))
-    with Pool(processes=workers) as pool:
-        results = pool.map(download_single_shard, ids)
-
-    ok = sum(1 for r in results if r)
-    print(f"Data: {ok}/{len(ids)} shards ready at {DATA_DIR}")
-
-# ---------------------------------------------------------------------------
-# Tokenizer training
-# ---------------------------------------------------------------------------
-
-def list_parquet_files():
-    """Return sorted list of parquet file paths in the data directory."""
-    files = sorted(f for f in os.listdir(DATA_DIR) if f.endswith(".parquet") and not f.endswith(".tmp"))
-    return [os.path.join(DATA_DIR, f) for f in files]
+def _import_contract(directory, source_hashes, seed, fraction):
+    directory = Path(directory).expanduser().resolve()
+    manifest = _read_json(directory / "manifest.json")
+    body = {key: value for key, value in manifest.items() if key != "contract_id"}
+    if _object_digest(body) != manifest.get("contract_id"):
+        raise ValueError("Changed MLEvolve contract manifest")
+    if (manifest.get("version") != 1 or manifest.get("task_id") != TASK_ID
+            or manifest.get("metric_version") != METRIC_VERSION or manifest.get("maximize") is not True
+            or manifest.get("split_method") != "stratified-target-v1"):
+        raise ValueError("Unsupported MLEvolve task/metric/split contract")
+    _check_hashes(directory, manifest.get("files"),
+                  {"split.npz", "train_ids.csv", "validation.csv", "test_ids.csv"})
+    if (manifest.get("public_train_sha256") != source_hashes["train.csv"]
+            or manifest.get("public_test_sha256") != source_hashes["test.csv"]):
+        raise ValueError("Public source data does not match the MLEvolve contract")
+    if seed is not None and seed != manifest["seed"]:
+        raise ValueError("--seed differs from the imported contract")
+    if fraction is not None and fraction != manifest["validation_fraction"]:
+        raise ValueError("--validation-fraction differs from the imported contract")
+    return directory, manifest
 
 
-def text_iterator(max_chars=1_000_000_000, doc_cap=10_000):
-    """Yield documents from training split (all shards except pinned val shard)."""
-    parquet_paths = [p for p in list_parquet_files() if not p.endswith(VAL_FILENAME)]
-    nchars = 0
-    for filepath in parquet_paths:
-        pf = pq.ParquetFile(filepath)
-        for rg_idx in range(pf.num_row_groups):
-            rg = pf.read_row_group(rg_idx)
-            for text in rg.column("text").to_pylist():
-                doc = text[:doc_cap] if len(text) > doc_cap else text
-                nchars += len(doc)
-                yield doc
-                if nchars >= max_chars:
-                    return
+def _load_manifest(directory):
+    directory = prepared_directory(directory)
+    manifest = _read_json(directory / "manifest.json")
+    body = {key: value for key, value in manifest.items() if key != "prepared_id"}
+    if _object_digest(body) != manifest.get("prepared_id"):
+        raise ValueError("Changed preparation manifest")
+    if (manifest.get("version") != 1 or manifest.get("task_id") != TASK_ID
+            or manifest.get("metric_version") != METRIC_VERSION or manifest.get("maximize") is not True):
+        raise ValueError("Unsupported prepared task/metric")
+    if manifest.get("prepare_sha256") != digest(__file__):
+        raise ValueError("prepare.py differs from the frozen preparation. Use the original task "
+                         "base or deliberately prepare a new protocol in a new directory.")
+    _check_hashes(directory, manifest.get("files"), ARTIFACT_FILES)
+    return manifest
 
 
-def train_tokenizer():
-    """Train BPE tokenizer using rustbpe, save as tiktoken pickle."""
-    tokenizer_pkl = os.path.join(TOKENIZER_DIR, "tokenizer.pkl")
-    token_bytes_path = os.path.join(TOKENIZER_DIR, "token_bytes.pt")
+def load_data(prepared_dir=None):
+    """Return fit, validation and public test frames, preserving prepared row order.
 
-    if os.path.exists(tokenizer_pkl) and os.path.exists(token_bytes_path):
-        print(f"Tokenizer: already trained at {TOKENIZER_DIR}")
-        return
-
-    os.makedirs(TOKENIZER_DIR, exist_ok=True)
-
-    parquet_files = list_parquet_files()
-    if len(parquet_files) < 2:
-        print("Tokenizer: need at least 2 data shards (1 train + 1 val). Download more data first.")
-        sys.exit(1)
-
-    # --- Train with rustbpe ---
-    print("Tokenizer: training BPE tokenizer...")
-    t0 = time.time()
-
-    tokenizer = rustbpe.Tokenizer()
-    vocab_size_no_special = VOCAB_SIZE - len(SPECIAL_TOKENS)
-    tokenizer.train_from_iterator(text_iterator(), vocab_size_no_special, pattern=SPLIT_PATTERN)
-
-    # Build tiktoken encoding from trained merges
-    pattern = tokenizer.get_pattern()
-    mergeable_ranks = {bytes(k): v for k, v in tokenizer.get_mergeable_ranks()}
-    tokens_offset = len(mergeable_ranks)
-    special_tokens = {name: tokens_offset + i for i, name in enumerate(SPECIAL_TOKENS)}
-    enc = tiktoken.Encoding(
-        name="rustbpe",
-        pat_str=pattern,
-        mergeable_ranks=mergeable_ranks,
-        special_tokens=special_tokens,
-    )
-
-    # Save tokenizer
-    with open(tokenizer_pkl, "wb") as f:
-        pickle.dump(enc, f)
-
-    t1 = time.time()
-    print(f"Tokenizer: trained in {t1 - t0:.1f}s, saved to {tokenizer_pkl}")
-
-    # --- Build token_bytes lookup for BPB evaluation ---
-    print("Tokenizer: building token_bytes lookup...")
-    special_set = set(SPECIAL_TOKENS)
-    token_bytes_list = []
-    for token_id in range(enc.n_vocab):
-        token_str = enc.decode([token_id])
-        if token_str in special_set:
-            token_bytes_list.append(0)
-        else:
-            token_bytes_list.append(len(token_str.encode("utf-8")))
-    token_bytes_tensor = torch.tensor(token_bytes_list, dtype=torch.int32)
-    torch.save(token_bytes_tensor, token_bytes_path)
-    print(f"Tokenizer: saved token_bytes to {token_bytes_path}")
-
-    # Sanity check
-    test = "Hello world! Numbers: 123. Unicode: 你好"
-    encoded = enc.encode_ordinary(test)
-    decoded = enc.decode(encoded)
-    assert decoded == test, f"Tokenizer roundtrip failed: {test!r} -> {decoded!r}"
-    print(f"Tokenizer: sanity check passed (vocab_size={enc.n_vocab})")
-
-# ---------------------------------------------------------------------------
-# Runtime utilities (imported by train.py)
-# ---------------------------------------------------------------------------
-
-class Tokenizer:
-    """Minimal tokenizer wrapper. Training is handled above."""
-
-    def __init__(self, enc):
-        self.enc = enc
-        self.bos_token_id = enc.encode_single_token(BOS_TOKEN)
-
-    @classmethod
-    def from_directory(cls, tokenizer_dir=TOKENIZER_DIR):
-        with open(os.path.join(tokenizer_dir, "tokenizer.pkl"), "rb") as f:
-            enc = pickle.load(f)
-        return cls(enc)
-
-    def get_vocab_size(self):
-        return self.enc.n_vocab
-
-    def get_bos_token_id(self):
-        return self.bos_token_id
-
-    def encode(self, text, prepend=None, num_threads=8):
-        if prepend is not None:
-            prepend_id = prepend if isinstance(prepend, int) else self.enc.encode_single_token(prepend)
-        if isinstance(text, str):
-            ids = self.enc.encode_ordinary(text)
-            if prepend is not None:
-                ids.insert(0, prepend_id)
-        elif isinstance(text, list):
-            ids = self.enc.encode_ordinary_batch(text, num_threads=num_threads)
-            if prepend is not None:
-                for row in ids:
-                    row.insert(0, prepend_id)
-        else:
-            raise ValueError(f"Invalid input type: {type(text)}")
-        return ids
-
-    def decode(self, ids):
-        return self.enc.decode(ids)
+    Fit all learned transforms only on fit. Validation labels/identities are for
+    scoring; they must never be training examples or inference features.
+    """
+    directory = prepared_directory(prepared_dir)
+    manifest = _load_manifest(directory)
+    fit = _read_frame(directory / "train.csv", TRAIN_COLUMNS)
+    validation = _read_frame(directory / "validation.csv", TRAIN_COLUMNS)
+    test = _read_frame(directory / "test.csv", TEST_COLUMNS)
+    for name, frame in (("train", fit), ("validation", validation), ("test", test)):
+        if len(frame) != manifest[f"{name}_rows"]:
+            raise ValueError(f"Changed {name} row count")
+    ids = pd.concat([frame["id"] for frame in (fit, validation, test)], ignore_index=True)
+    if not ids.is_unique:
+        raise ValueError("Train, validation and test IDs must be disjoint")
+    with np.load(directory / "split.npz", allow_pickle=False) as split:
+        _check_split(split["train"], split["validation"], len(fit) + len(validation))
+        if len(split["train"]) != len(fit) or len(split["validation"]) != len(validation):
+            raise ValueError("Split lengths differ from prepared CSVs")
+    return fit, validation, test
 
 
-def get_token_bytes(device="cpu"):
-    path = os.path.join(TOKENIZER_DIR, "token_bytes.pt")
-    with open(path, "rb") as f:
-        return torch.load(f, map_location=device)
+def verify_prepared(prepared_dir=None):
+    """Verify frozen code, file hashes, schemas, disjoint IDs and all metric terms."""
+    _, validation, _ = load_data(prepared_dir)
+    score_components(validation, np.full(len(validation), 0.5))
+    return _load_manifest(prepared_directory(prepared_dir))
 
 
-def _document_batches(split, tokenizer_batch_size=128):
-    """Infinite iterator over document batches from parquet files."""
-    parquet_paths = list_parquet_files()
-    assert len(parquet_paths) > 0, "No parquet files found. Run prepare.py first."
-    val_path = os.path.join(DATA_DIR, VAL_FILENAME)
-    if split == "train":
-        parquet_paths = [p for p in parquet_paths if p != val_path]
-        assert len(parquet_paths) > 0, "No training shards found."
+def prepare(data_dir, output_dir=None, *, seed=None, validation_fraction=None, mlevolve_contract=None):
+    """Prepare once or verify an identical existing preparation; never overwrite it."""
+    data_dir = Path(data_dir).expanduser().resolve()
+    directory = prepared_directory(output_dir)
+    if data_dir == directory or data_dir.is_relative_to(directory):
+        raise ValueError("Output directory must be separate from the public source directory")
+    if data_dir.name == "private":
+        raise ValueError("Use prepared/public; private evaluation data is not an input")
+    source_hashes = {name: digest(data_dir / name) for name in ("train.csv", "test.csv")}
+    imported_dir, imported = (None, None)
+    if mlevolve_contract is not None:
+        imported_dir, imported = _import_contract(mlevolve_contract, source_hashes, seed, validation_fraction)
+        seed, validation_fraction = imported["seed"], imported["validation_fraction"]
+    seed = DEFAULT_SEED if seed is None else seed
+    fraction = DEFAULT_VALIDATION_FRACTION if validation_fraction is None else validation_fraction
+    if not isinstance(seed, int) or not 0 <= seed < 2**32:
+        raise ValueError("Seed must be an integer in [0, 2**32)")
+    if not isinstance(fraction, (int, float)) or not 0 < fraction < 1:
+        raise ValueError("Validation fraction must be strictly between 0 and 1")
+    contract_id = imported["contract_id"] if imported else None
+    if directory.exists():
+        manifest = verify_prepared(directory)
+        if (manifest["source_sha256"] != source_hashes or manifest["seed"] != seed
+                or manifest["validation_fraction"] != fraction
+                or manifest["mlevolve_contract_id"] != contract_id):
+            raise ValueError("Existing preparation has different data/split settings. "
+                             "Use a new output directory; never overwrite a comparison's data.")
+        return manifest
+
+    train = _read_frame(data_dir / "train.csv", TRAIN_COLUMNS)
+    test = _read_frame(data_dir / "test.csv", TEST_COLUMNS)
+    if train["id"].isin(test["id"]).any():
+        raise ValueError("Public train and test IDs overlap")
+    if imported:
+        with np.load(imported_dir / "split.npz", allow_pickle=False) as split:
+            fit_idx, val_idx = split["train"], split["validation"]
+        _check_split(fit_idx, val_idx, len(train))
+        for artifact, expected_ids in (("train_ids.csv", train["id"]),
+                                       ("test_ids.csv", test["id"]),
+                                       ("validation.csv", train.iloc[val_idx]["id"])):
+            recorded = pd.read_csv(imported_dir / artifact, dtype={"id": str})
+            if recorded["id"].tolist() != expected_ids.tolist():
+                raise ValueError(f"Source row order differs from imported {artifact}")
+        recorded_labels = pd.read_csv(imported_dir / "validation.csv", usecols=LABEL_COLUMNS)[LABEL_COLUMNS]
+        actual_labels = train.iloc[val_idx][LABEL_COLUMNS]
+        if (not np.allclose(recorded_labels, actual_labels, rtol=1e-12, atol=1e-12, equal_nan=True)
+                or not np.array_equal(recorded_labels.fillna(0).to_numpy() >= 0.5,
+                                      actual_labels.fillna(0).to_numpy() >= 0.5)):
+            raise ValueError("Validation labels differ from imported contract")
+        if (len(train) != imported["train_rows"] or len(test) != imported["test_rows"]
+                or len(val_idx) != imported["validation_rows"]):
+            raise ValueError("Source row counts differ from imported contract")
+        attempt, split_method = imported["split_attempt"], imported["split_method"]
     else:
-        parquet_paths = [val_path]
-    epoch = 1
-    while True:
-        for filepath in parquet_paths:
-            pf = pq.ParquetFile(filepath)
-            for rg_idx in range(pf.num_row_groups):
-                rg = pf.read_row_group(rg_idx)
-                batch = rg.column('text').to_pylist()
-                for i in range(0, len(batch), tokenizer_batch_size):
-                    yield batch[i:i+tokenizer_batch_size], epoch
-        epoch += 1
+        fit_idx, val_idx, attempt = _make_split(train, seed, fraction)
+        split_method = SPLIT_METHOD
+    _check_split(fit_idx, val_idx, len(train))
+    score_components(train.iloc[val_idx], np.full(len(val_idx), 0.5))
+
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".jigsaw-prepare-", dir=directory.parent) as temporary:
+        staging = Path(temporary) / "prepared"
+        staging.mkdir()
+        train.iloc[fit_idx].to_csv(staging / "train.csv", index=False)
+        train.iloc[val_idx].to_csv(staging / "validation.csv", index=False)
+        test.to_csv(staging / "test.csv", index=False)
+        np.savez_compressed(staging / "split.npz", train=fit_idx, validation=val_idx)
+        if any(digest(data_dir / name) != expected for name, expected in source_hashes.items()):
+            raise ValueError("Source CSV changed during preparation; rerun against stable input")
+        manifest = {
+            "version": 1, "task_id": TASK_ID, "metric_version": METRIC_VERSION, "maximize": True,
+            "seed": seed, "validation_fraction": fraction, "split_attempt": attempt,
+            "split_method": split_method, "mlevolve_contract_id": contract_id,
+            "train_rows": len(fit_idx), "validation_rows": len(val_idx), "test_rows": len(test),
+            "source_sha256": source_hashes, "prepare_sha256": digest(__file__),
+            "files": {name: digest(staging / name) for name in sorted(ARTIFACT_FILES)},
+        }
+        manifest["prepared_id"] = _object_digest(manifest)
+        _write_json(staging / "manifest.json", manifest)
+        verify_prepared(staging)
+        if directory.exists():
+            raise FileExistsError(f"Preparation appeared concurrently: {directory}")
+        staging.rename(directory)
+    return manifest
 
 
-def make_dataloader(tokenizer, B, T, split, buffer_size=1000):
-    """
-    BOS-aligned dataloader with best-fit packing.
-    Every row starts with BOS. Documents packed using best-fit to minimize cropping.
-    When no document fits remaining space, crops shortest doc to fill exactly.
-    100% utilization (no padding).
-    """
-    assert split in ["train", "val"]
-    row_capacity = T + 1
-    batches = _document_batches(split)
-    bos_token = tokenizer.get_bos_token_id()
-    doc_buffer = []
-    epoch = 1
+def evaluate_predictions(predictions, prepared_dir=None):
+    """Score a strict id,prediction CSV/DataFrame, or an array in validation order."""
+    directory = prepared_directory(prepared_dir)
+    manifest = _load_manifest(directory)
+    validation = _read_frame(directory / "validation.csv", TRAIN_COLUMNS)
+    if isinstance(predictions, (str, os.PathLike)):
+        predictions = pd.read_csv(predictions, dtype={"id": str})
+    if isinstance(predictions, pd.DataFrame):
+        if (list(predictions.columns) != ["id", "prediction"]
+                or predictions["id"].tolist() != validation["id"].tolist()):
+            raise ValueError("Prediction CSV must have exactly id,prediction columns and "
+                             "all validation IDs in their prepared order")
+        predictions = predictions["prediction"].to_numpy()
+    result = score_components(validation, predictions)
+    return {**result, "prepared_id": manifest["prepared_id"], "validation_rows": len(validation)}
 
-    def refill_buffer():
-        nonlocal epoch
-        doc_batch, epoch = next(batches)
-        token_lists = tokenizer.encode(doc_batch, prepend=bos_token)
-        doc_buffer.extend(token_lists)
 
-    # Pre-allocate buffers: [inputs (B*T) | targets (B*T)]
-    row_buffer = torch.empty((B, row_capacity), dtype=torch.long)
-    cpu_buffer = torch.empty(2 * B * T, dtype=torch.long, pin_memory=True)
-    gpu_buffer = torch.empty(2 * B * T, dtype=torch.long, device="cuda")
-    cpu_inputs = cpu_buffer[:B * T].view(B, T)
-    cpu_targets = cpu_buffer[B * T:].view(B, T)
-    inputs = gpu_buffer[:B * T].view(B, T)
-    targets = gpu_buffer[B * T:].view(B, T)
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest="command", required=True)
+    setup = commands.add_parser("prepare", help="Prepare fixed public-data splits once (CPU)")
+    setup.add_argument("--data-dir", required=True, help="Public directory containing train.csv and test.csv")
+    setup.add_argument("--output-dir", help="Persistent output; defaults to results/jigsaw-data beside this script")
+    setup.add_argument("--seed", type=int, help="Default 42, or inherit the imported contract")
+    setup.add_argument("--validation-fraction", type=float, help="Default 0.05, or inherit imported contract")
+    setup.add_argument("--mlevolve-contract", help="Existing candidate_results/contract for exact split parity")
+    verify = commands.add_parser("verify", help="Verify an existing frozen preparation")
+    verify.add_argument("--prepared-dir", help="Default AUTORESEARCH_JIGSAW_DIR or results/jigsaw-data")
+    evaluate = commands.add_parser("evaluate", help="Score continuous validation probabilities (CPU)")
+    evaluate.add_argument("--prepared-dir", help="Default AUTORESEARCH_JIGSAW_DIR or results/jigsaw-data")
+    evaluate.add_argument("--predictions", required=True, help="CSV with exactly id,prediction columns")
+    evaluate.add_argument("--output", help="Optional metrics JSON outside the frozen prepared directory")
+    args = parser.parse_args()
+    try:
+        if args.command == "prepare":
+            manifest = prepare(args.data_dir, args.output_dir, seed=args.seed,
+                               validation_fraction=args.validation_fraction, mlevolve_contract=args.mlevolve_contract)
+            print(f"prepared_dir: {prepared_directory(args.output_dir)}")
+            print(f"prepared_id: {manifest['prepared_id']}")
+            print(f"rows: train={manifest['train_rows']} validation={manifest['validation_rows']} test={manifest['test_rows']}")
+            print("Data ready. The upstream train.py must be adapted to Jigsaw before training; see program.md.")
+        elif args.command == "verify":
+            manifest = verify_prepared(args.prepared_dir)
+            print(f"Verified {TASK_ID}: {manifest['prepared_id']}")
+        else:
+            if args.output and Path(args.output).resolve().is_relative_to(prepared_directory(args.prepared_dir)):
+                raise ValueError("Metrics output must be outside the frozen prepared directory")
+            result = evaluate_predictions(args.predictions, args.prepared_dir)
+            if args.output:
+                _write_json(args.output, result)
+            print(f"val_score: {result['score']:.10f}")
+            print(f"overall_auc: {result['overall_auc']:.10f}")
+            print(f"prepared_id: {result['prepared_id']}")
+            print(f"metric_version: {result['metric_version']}")
+    except (ValueError, OSError, KeyError) as error:
+        parser.exit(2, f"error: {error}\n")
 
-    while True:
-        for row_idx in range(B):
-            pos = 0
-            while pos < row_capacity:
-                while len(doc_buffer) < buffer_size:
-                    refill_buffer()
-
-                remaining = row_capacity - pos
-
-                # Find largest doc that fits entirely
-                best_idx = -1
-                best_len = 0
-                for i, doc in enumerate(doc_buffer):
-                    doc_len = len(doc)
-                    if doc_len <= remaining and doc_len > best_len:
-                        best_idx = i
-                        best_len = doc_len
-
-                if best_idx >= 0:
-                    doc = doc_buffer.pop(best_idx)
-                    row_buffer[row_idx, pos:pos + len(doc)] = torch.tensor(doc, dtype=torch.long)
-                    pos += len(doc)
-                else:
-                    # No doc fits — crop shortest to fill remaining
-                    shortest_idx = min(range(len(doc_buffer)), key=lambda i: len(doc_buffer[i]))
-                    doc = doc_buffer.pop(shortest_idx)
-                    row_buffer[row_idx, pos:pos + remaining] = torch.tensor(doc[:remaining], dtype=torch.long)
-                    pos += remaining
-
-        cpu_inputs.copy_(row_buffer[:, :-1])
-        cpu_targets.copy_(row_buffer[:, 1:])
-        gpu_buffer.copy_(cpu_buffer, non_blocking=True)
-        yield inputs, targets, epoch
-
-# ---------------------------------------------------------------------------
-# Evaluation (DO NOT CHANGE — this is the fixed metric)
-# ---------------------------------------------------------------------------
-
-@torch.no_grad()
-def evaluate_bpb(model, tokenizer, batch_size):
-    """
-    Bits per byte (BPB): vocab size-independent evaluation metric.
-    Sums per-token cross-entropy (in nats), sums target byte lengths,
-    then converts nats/byte to bits/byte. Special tokens (byte length 0)
-    are excluded from both sums.
-    Uses fixed MAX_SEQ_LEN so results are comparable across configs.
-    """
-    token_bytes = get_token_bytes(device="cuda")
-    val_loader = make_dataloader(tokenizer, batch_size, MAX_SEQ_LEN, "val")
-    steps = EVAL_TOKENS // (batch_size * MAX_SEQ_LEN)
-    total_nats = 0.0
-    total_bytes = 0
-    for _ in range(steps):
-        x, y, _ = next(val_loader)
-        loss_flat = model(x, y, reduction='none').view(-1)
-        y_flat = y.view(-1)
-        nbytes = token_bytes[y_flat]
-        mask = nbytes > 0
-        total_nats += (loss_flat * mask).sum().item()
-        total_bytes += nbytes.sum().item()
-    return total_nats / (math.log(2) * total_bytes)
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Prepare data and tokenizer for autoresearch")
-    parser.add_argument("--num-shards", type=int, default=10, help="Number of training shards to download (-1 = all). Val shard is always pinned.")
-    parser.add_argument("--download-workers", type=int, default=8, help="Number of parallel download workers")
-    args = parser.parse_args()
-
-    num_shards = MAX_SHARD if args.num_shards == -1 else args.num_shards
-
-    print(f"Cache directory: {CACHE_DIR}")
-    print()
-
-    # Step 1: Download data
-    download_data(num_shards, download_workers=args.download_workers)
-    print()
-
-    # Step 2: Train tokenizer
-    train_tokenizer()
-    print()
-    print("Done! Ready to train.")
+    main()
