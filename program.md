@@ -6,8 +6,8 @@ This is an experiment to have the LLM do its own research on Jigsaw Unintended B
 
 To set up a new experiment, work with the user to:
 
-1. **Agree on a run tag**: propose a tag based on today's date (e.g. `mar5`). The branch `codex/jigsaw-<tag>` must not already exist — this is a fresh run.
-2. **Create the branch**: `git checkout -b codex/jigsaw-<tag> codex/jigsaw-unintended-bias` from the Jigsaw task branch.
+1. **Agree on a run branch**: use `run/<start-time>-<task-name>-<baseline-or-analogy>`. Record the run's start time as `YYYYMMDD_HHMMSS`; the task name is `jigsaw-unintended-bias-in-toxicity-classification`, and the final suffix is either `baseline` or `analogy`, matching the experiment type. The branch must not already exist — this is a fresh run.
+2. **Create the branch**: `git checkout -b <run-branch> codex/jigsaw-unintended-bias` from the Jigsaw task branch, using the name agreed above.
 3. **Read the in-scope files**: The repo is small. Read these files for full context:
    - `README.md` — upstream repository context; this branch uses the Jigsaw task.
    - `prepare.py` — fixed Jigsaw data preparation, train/validation split, and evaluation. Do not modify.
@@ -84,7 +84,7 @@ d4e5f6g	0.000000	0.0	crash	double model width (OOM)
 
 ## The experiment loop
 
-The experiment runs on a dedicated branch (e.g. `codex/jigsaw-mar5` or `codex/jigsaw-mar5-gpu0`).
+The experiment runs on a dedicated branch (e.g. `run/20260918_100000-jigsaw-unintended-bias-in-toxicity-classification-baseline` or `run/20260918_110000-jigsaw-unintended-bias-in-toxicity-classification-analogy`).
 
 LOOP FOREVER:
 
