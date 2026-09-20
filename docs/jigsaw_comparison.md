@@ -19,6 +19,10 @@ backoffLimit: 0
 
 这一轮比较相同 Job 总时限下的最佳已完成验证分数；安装或人工等待不同，会使两组实际研究时间不同。尽量同时准备、及时启动并记录时间。analogy 的额外模型用量另行记录，这不是相同 token 或 API 成本的对照。
 
+**不需要守着收尾。** 六小时到期自动停止；如果整轮任务提前完成，program 要求 agent 先保存结果和 `summary.md`，最后执行 `touch /tmp/autoresearch-finished`。Job 的主进程检测到标记后以 0 退出，Job 成为 `Complete`，释放 GPU。无法继续的失败则写 `/tmp/autoresearch-failed`，以 1 退出并成为 `Failed`。普通训练失败可以继续调试，不应提前停整轮研究。
+
+这两个标记只属于当前 Pod，不需要 Kubernetes API 权限。Claude 回复完一段话、关闭交互界面或结束单次训练，都不会自动等同于整轮研究完成；正常无提前终止条件时仍跑到六小时。Job/Pod 对象会保留供查看状态，结果保留在 PVC，停止运行不等于删除 Job 对象。
+
 ## 1. 准备目录与配置
 
 默认 namespace `ecepxie`、PVC `yuze-li-vol`、单张 `NVIDIA-A40`、8 CPU、48Gi 内存。修改硬件时，两份 YAML 的资源、`nodeSelector` 和 `AUTORESEARCH_RESOURCES` 一起改。

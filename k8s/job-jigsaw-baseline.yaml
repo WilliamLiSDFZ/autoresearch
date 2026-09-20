@@ -49,7 +49,16 @@ spec:
               claude --version
               touch /tmp/autoresearch-ready
               printf 'Setup complete. Enter this Pod and run claude manually.\n'
-              exec sleep infinity
+              # The agent signals the end of the entire research run after saving results.
+              while [ ! -f /tmp/autoresearch-finished ] && [ ! -f /tmp/autoresearch-failed ]; do
+                sleep 2
+              done
+              if [ -f /tmp/autoresearch-failed ]; then
+                printf 'Research stopped with a failure; see the saved run summary.\n' >&2
+                exit 1
+              fi
+              printf 'Research finished; stopping the Pod.\n'
+              exit 0
           env:
             - name: EXPERIMENT_ARM
               value: baseline

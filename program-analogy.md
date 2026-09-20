@@ -29,6 +29,7 @@ Each experiment runs on a single GPU within the Job's six-hour limit. The remain
 **What you CAN do:**
 - Modify `train.py` — this is the only source file you edit. Everything is fair game: model architecture, optimizer, hyperparameters, training loop, batch size, model size, etc.
 - Write run artifacts such as source snapshots, logs, metrics, configurations, predictions, and checkpoints under `$RUN_DIR`. Use the fixed helpers for snapshots and completion receipts.
+- Signal final shutdown using the two `/tmp` marker files described below; these are lifecycle signals, not source edits.
 
 **What you CANNOT do:**
 - Modify `prepare.py` or the prepared data. They contain the fixed data split, labels, and evaluation. Fit learned preprocessing only on training rows; do not train on validation or private test labels.
@@ -167,3 +168,5 @@ The idea is that you are a completely autonomous researcher trying things out. I
 **Crashes**: If a run crashes (OOM, or a bug, or etc.), use your judgment: if it's something easy to fix, fix it in a new attempt. If the idea itself is fundamentally broken, skip it, log `crash`, restore the best implementation, and move on.
 
 **Continue autonomously while the Job runs**: Do not pause to ask the human whether to continue. If you run out of ideas, re-read the in-scope files, combine previous near-misses, or try another architectural change. Keep logs, completed receipts, and `best.json` up to date; do not defer saving everything until the end. Stop when the Job terminates, a supplied deadline is reached, or the human interrupts you. Never restart the Job to continue or finalize results after a known deadline. Report the best eligible result and its artifact path when possible.
+
+**Finish and release the Pod**: If the entire research task finishes before Kubernetes stops the Job (for example, a user-specified stopping condition is met), first stop any training you started, save eligible results and the best artifact path, and write `$RUN_DIR/summary.md` with the outcome and stopping reason. Then run `touch /tmp/autoresearch-finished` as your final shell command. For an unrecoverable failure that prevents continuing, save the error and any valid results, then run `touch /tmp/autoresearch-failed` instead. If setup failed before a run directory could be created, report the error in the conversation before signaling failure. The Job exits within a few seconds and disconnects Claude, so do not leave summaries to a later reply. Never signal shutdown after just one candidate, one reply, or a recoverable training error. Without an earlier stopping condition, continue research until the Job's six-hour limit; Kubernetes stops it automatically even if you cannot write a marker.
