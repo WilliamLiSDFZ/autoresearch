@@ -21,24 +21,24 @@ To set up a new experiment, verify the user's existing setup:
    git -C "$AUTORESEARCH_SOURCE_DIR" worktree add -b "$BRANCH_NAME" "$AUTORESEARCH_REPO_DIR" "$BASE_COMMIT"
    cd "$AUTORESEARCH_REPO_DIR"
    ```
-2. **Check the runtime context**: The Job installs its tools and this arm's dependencies from the recorded main-repository commit; the user enters the ready Pod and starts `claude` directly. Preserve `UV_PROJECT_ENVIRONMENT=/root/.venvs/autoresearch`, which uses this arm's own persistent `/root`; do not override it, reinstall dependencies, or create a worktree `.venv`. The Job has `activeDeadlineSeconds: 21600` (six hours), measured from its `.status.startTime`. Queueing, installation, and waiting for the user to enter the Pod all consume that time. Kubernetes terminates the Pod at the Job deadline. If the user supplies an absolute UTC deadline, use it for planning; otherwise the deadline is unknown to you. Do not invent it, restart a six-hour clock at Claude launch, or add a timer script.
+2. **Check the runtime context**: The Job reuses the user's preinstalled environment at `AUTORESEARCH_VENV=/workspace/autoresearch/.venv`, mounted read-only along with its Python interpreter. The user enters the ready Pod and starts `claude` directly. This environment must already match the task's locked dependencies; if it is missing or unusable, stop and report the problem. Preserve `AUTORESEARCH_VENV` and `VIRTUAL_ENV`; do not install or sync packages, change the shared environment, or create a worktree `.venv`. Invoke `"$AUTORESEARCH_VENV/bin/python"` explicitly for every Python command: activation in the Job's startup shell does not carry into a new `kubectl exec` or shell tool call. The Job has `activeDeadlineSeconds: 21600` (six hours), measured from its `.status.startTime`. Queueing, startup, and waiting for the user to enter the Pod all consume that time. Kubernetes terminates the Pod at the Job deadline. If the user supplies an absolute UTC deadline, use it for planning; otherwise the deadline is unknown to you. Do not invent it, restart a six-hour clock at Claude launch, or add a timer script.
 3. **Read the in-scope files**: Read `$AUTORESEARCH_TASK_FILE`, `$AUTORESEARCH_REPO_DIR/prepare.py`, and `$AUTORESEARCH_REPO_DIR/train.py` for the task, fixed data/evaluation, and editable implementation. All repository files and helpers mentioned below refer to this worktree. The main repository's `AGENTS.md` still applies; do not copy or edit it. `README.md` may be consulted for upstream/Jigsaw context only; the arm-specific scope below takes precedence over its links and instructions. This is the baseline arm: never read or call `analogy_agent.py`, `autoresearch_analogy/`, analogy configuration, the knowledge base, full-text cache, reports, or `program-analogy.md`. Do not use analogy snapshot/complete commands. Sharing the installed dependency lock does not authorize invoking analogy.
-4. **Verify data exists**: Run `cd "$AUTORESEARCH_REPO_DIR" && uv run --no-sync prepare.py verify --prepared-dir "$AUTORESEARCH_JIGSAW_DIR"`. Both arms use the same read-only prepared split at `/data/jigsaw-prepared`. If it is missing or fails verification, stop and report the problem; do not prepare or repair it. Record `prepared_id` from its verified `manifest.json`.
-5. **Initialize results.tsv**: Set the paths below and create `$RUN_DIR/results.tsv` with just the five-column header shown under Logging results. Record the actual branch, recorded starting Git SHA, main-repository path, worktree path, `UV_PROJECT_ENVIRONMENT` path, task-file SHA-256, verified prepared ID, initial seed, fixed resources, Job `RUN_TAG`, and the user-provided UTC deadline if any in `$RUN_DIR/run.json`. Leave an unavailable deadline explicitly unknown. Keep all new experiment artifacts under this run directory. Shared directories may be accessible; isolation relies on following this protocol. Do not read other arms' or previous runs' code, logs, models, reports, or histories.
+4. **Verify data exists**: Run `cd "$AUTORESEARCH_REPO_DIR" && "$AUTORESEARCH_VENV/bin/python" prepare.py verify --prepared-dir "$AUTORESEARCH_JIGSAW_DIR"`. Both arms use the same read-only prepared split at `/data/jigsaw-prepared`. If it is missing or fails verification, stop and report the problem; do not prepare or repair it. Record `prepared_id` from its verified `manifest.json`.
+5. **Initialize results.tsv**: Set the paths below and create `$RUN_DIR/results.tsv` with just the five-column header shown under Logging results. Record the actual branch, recorded starting Git SHA, main-repository path, worktree path, shared `AUTORESEARCH_VENV` path and resolved Python interpreter path, task-file SHA-256, verified prepared ID, initial seed, fixed resources, Job `RUN_TAG`, and the user-provided UTC deadline if any in `$RUN_DIR/run.json`. Leave an unavailable deadline explicitly unknown. Keep all new experiment artifacts under this run directory. Shared directories may be accessible; isolation relies on following this protocol. Do not read other arms' or previous runs' code, logs, models, reports, or histories.
 6. **Go**: Once these checks pass, start drafting. Do not wait for another confirmation.
 
 ```bash
 cd "$AUTORESEARCH_REPO_DIR"
 RUN_DIR="$AUTORESEARCH_REPO_DIR/results/$RUN_TAG"
 mkdir -p "$RUN_DIR"  # Only after this arm's worktree has been created.
-PREPARED_ID=$(python -c 'import json,os; print(json.load(open(os.path.join(os.environ["AUTORESEARCH_JIGSAW_DIR"], "manifest.json")))["prepared_id"])')
+PREPARED_ID=$("$AUTORESEARCH_VENV/bin/python" -c 'import json,os; print(json.load(open(os.path.join(os.environ["AUTORESEARCH_JIGSAW_DIR"], "manifest.json")))["prepared_id"])')
 ```
 
 **Stay in this worktree**: After creation, explicitly start every shell tool call with `cd "$AUTORESEARCH_REPO_DIR"`. One shell's `cd` does not change Claude's launch directory or later tool calls. Use absolute paths under `$AUTORESEARCH_REPO_DIR` with every file-editing tool; never edit a relative `train.py` from Claude's main-repository directory. Recreate these variables and the current trial paths inside each call, and fail on unset variables (`set -u`). Do not assume an earlier shell's assignments survive. Persist the best completed artifact path in `$RUN_DIR/best.json` and reload it before using `BEST_ARTIFACT_DIR`.
 
 ## Experimentation
 
-Each experiment runs on a single GPU within the Job's six-hour limit. The remaining time includes reading, reasoning, retrieval where enabled, editing, training, evaluation, debugging, and bookkeeping. Both arms have the same Job limit, but queueing, installation, and delayed manual entry can leave different amounts of time for Claude; do not describe this as six hours of agent work or equal LLM token usage/API cost. Save results promptly because Kubernetes may stop the Pod during any operation. If an absolute deadline was provided, check the actual UTC time before starting or finalizing a candidate and do not continue at or after that deadline. The artifact helper binds source and results; it does not enforce the Job deadline.
+Each experiment runs on a single GPU within the Job's six-hour limit. The remaining time includes reading, reasoning, retrieval where enabled, editing, training, evaluation, debugging, and bookkeeping. Both arms have the same Job limit, but queueing, startup, and delayed manual entry can leave different amounts of time for Claude; do not describe this as six hours of agent work or equal LLM token usage/API cost. Save results promptly because Kubernetes may stop the Pod during any operation. If an absolute deadline was provided, check the actual UTC time before starting or finalizing a candidate and do not continue at or after that deadline. The artifact helper binds source and results; it does not enforce the Job deadline.
 
 **What you CAN do:**
 - Modify `$AUTORESEARCH_REPO_DIR/train.py` — this is the only source file you edit. Everything is fair game: model architecture, optimizer, hyperparameters, training loop, batch size, model size, etc.
@@ -47,7 +47,7 @@ Each experiment runs on a single GPU within the Job's six-hour limit. The remain
 
 **What you CANNOT do:**
 - Modify `prepare.py` or the prepared data. They contain the fixed data split, labels, and evaluation. Fit learned preprocessing only on training rows; do not train on validation or private test labels.
-- Modify the main checkout, another worktree, the program files, helpers, analogy implementation, or dependency files; install new packages; or change the environment. Use this arm's already installed locked dependencies through the unchanged `UV_PROJECT_ENVIRONMENT`.
+- Modify the main checkout, another worktree, the program files, helpers, analogy implementation, or dependency files; install new packages; or change the environment. Use the shared, preinstalled dependencies only through `"$AUTORESEARCH_VENV/bin/python"`.
 - Modify the evaluation harness. The `evaluate_predictions` function in `prepare.py` is the ground truth metric: the Jigsaw composite AUC using continuous probabilities.
 - Extend or restart the Job, continue after a known deadline, or count incomplete, late, or failed candidates as successful results.
 
@@ -68,12 +68,12 @@ cd "$AUTORESEARCH_REPO_DIR"
 TRIAL_ID=trial0001  # Increment for every attempt; never reuse a directory.
 ARTIFACT_DIR="$RUN_DIR/trials/$TRIAL_ID"
 export AUTORESEARCH_ARTIFACT_DIR="$ARTIFACT_DIR"
-python experiment_artifacts.py snapshot --source train.py \
+"$AUTORESEARCH_VENV/bin/python" experiment_artifacts.py snapshot --source train.py \
   --artifact-dir "$ARTIFACT_DIR" --experiment-id "$TRIAL_ID" \
   --run-id "$RUN_TAG" --prepared-id "$PREPARED_ID"
-uv run --no-sync train.py > "$ARTIFACT_DIR/run.log" 2>&1
+"$AUTORESEARCH_VENV/bin/python" train.py > "$ARTIFACT_DIR/run.log" 2>&1
 # Only after a successful exit and valid outputs, before any known Job deadline:
-python experiment_artifacts.py complete \
+"$AUTORESEARCH_VENV/bin/python" experiment_artifacts.py complete \
   --artifact-dir "$ARTIFACT_DIR"
 ```
 
@@ -133,7 +133,7 @@ LOOP UNTIL JOB TERMINATION, A KNOWN DEADLINE, OR HUMAN INTERRUPTION:
 1. Explicitly enter `$AUTORESEARCH_REPO_DIR`, check its branch/starting commit with read-only commands and, if a deadline was supplied, the actual UTC time remaining. Identify the current best completed candidate, if any.
 2. Use your own reasoning from the allowed task, code, and this run's results; do not use analogy. Tune `train.py` with one experimental idea by directly hacking the code. Start improvements from the best snapshot.
 3. Allocate a new trial ID and take the pre-execution source snapshot with the neutral `experiment_artifacts.py` helper above.
-4. Run the experiment: `cd "$AUTORESEARCH_REPO_DIR" && uv run --no-sync train.py > "$ARTIFACT_DIR/run.log" 2>&1` (redirect everything — do NOT use tee or let output flood your context).
+4. Run the experiment: `cd "$AUTORESEARCH_REPO_DIR" && "$AUTORESEARCH_VENV/bin/python" train.py > "$ARTIFACT_DIR/run.log" 2>&1` (redirect everything — do NOT use tee or let output flood your context).
 5. Read out the results: `grep "^val_score:\|^peak_vram_mb:" "$ARTIFACT_DIR/run.log"`. Check exit status and outputs; run `complete` promptly after success, before any known deadline. The helper does not check the deadline for you.
 6. If training or completion fails, inspect `tail -n 50 "$ARTIFACT_DIR/run.log"` and the helper error. Log the failed attempt. An easy fix may be tried while the Job is running and before any known deadline, but it needs a new trial ID and snapshot; never finalize the old attempt with new code.
 7. Record the result in the TSV. Only a valid completed receipt makes a candidate eligible for `keep` or `discard`.
