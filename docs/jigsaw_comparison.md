@@ -4,9 +4,11 @@
 
 ## 隔离方式与时限
 
-**先创建并 checkout 不同 branch，也不能隔离同一个工作目录。** 同一目录只有一份当前 HEAD、工作文件和 Git index；B checkout 后，A 后续操作看到的也是切换后的目录，未提交文件也不会因分支名不同而隔离。因此两组各有一份独立 clone，agent 在自己的目录里首先创建并切换新分支，再修改代码。此处不用需要额外挂载主仓库的 linked worktree。
+两组 Job 挂载同一份主仓库 `/workspace/autoresearch`。agent 开始实验时用 `git worktree add -b` 创建本组的 run 分支和工作目录，之后只在自己的 worktree 修改、训练和保存结果。每个 worktree 有独立的 HEAD、index 和工作文件，因此不会因为另一组切换分支而改变本组文件；不再提前 clone，也不在主仓库执行 checkout。
 
-两组隔离 repo、`.venv`、结果与 `/root` 下的 Claude 会话；共享只读 prepared 数据和 Claude Code 安装文件。仅 analogy 挂载知识库。不要把整个 PVC 根目录再挂到这两个 Pod。
+两组各有独立的 `/root`，其下保存 Claude 会话、缓存和 `UV_PROJECT_ENVIRONMENT=/root/.venvs/autoresearch`；环境路径相同，但对应不同 PVC 子目录。prepared 数据在 `/data/jigsaw-prepared` 和主仓库内的原路径均只读，Claude Code 安装文件也只读共享。仅 analogy 挂载知识库。主仓库及其 `.git` 必须在两个 Pod 中保留相同绝对路径，实验期间不要移动它们。
+
+worktree 共享 Git 元数据，且两组都能访问主仓库挂载内的目录，这是工作目录隔离，并非文件访问权限隔离。program 明确禁止读取另一组或历史实验的代码、结果与报告，也禁止实验期间 commit、push、reset、切换分支或删除 worktree。
 
 两份 YAML 均设置：
 
@@ -25,31 +27,43 @@ backoffLimit: 0
 
 ## 1. 准备目录与配置
 
-默认 namespace `ecepxie`、PVC `yuze-li-vol`、单张 `NVIDIA-A40`、8 CPU、48Gi 内存。修改硬件时，两份 YAML 的资源、`nodeSelector` 和 `AUTORESEARCH_RESOURCES` 一起改。
+默认 namespace `ecepxie`、PVC `yuze-li-vol`、单张 GPU、8 CPU、48Gi 内存。两份 Job 使用相同的 `nodeAffinity` 型号列表，允许 L4、RTX 3090/4090、A10、RTX A5000/A6000、A40、L40/L40S 和 A100 的 40GB/80GB PCIe/SXM 型号，均为至少 24GB 显存的型号。列表中的任一种均可调度，不要求同时具备这些卡。修改硬件时，两份 YAML 的资源、允许列表和 `AUTORESEARCH_RESOURCES` 一起改。
 
-先由你把当前代码和文档提交到 Jigsaw 任务分支，并同步到 PVC 的 `/workspace/autoresearch`。下面 clone 只包含已提交内容。两组从同一任务 commit 开始，不复制已跑好的 baseline 代码、结果或 `.venv`。
+放宽列表后，两组可能分到不同 GPU，不能再视为严格相同硬件的对照。开始前用 `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` 记录实际型号和显存；严格比较时应配对相同型号的运行。`AUTORESEARCH_RESOURCES` 描述的是允许范围，不是实际分配型号。
+
+先由你把当前代码和文档提交到 Jigsaw 任务分支，并同步到 PVC 的 `/workspace/autoresearch`，让主仓库停在本轮起始 commit。worktree 只包含该 commit 的已提交文件，不包含未提交修改或未跟踪文件；起始 `train.py` 应是共同的上游模板，不是已优化的 baseline。保留已有 prepared 数据，无需复制结果或 `.venv`。
 
 在原来挂载整个 PVC 的 dev Pod 中执行：
 
 ```bash
 set -e
+test -d /workspace/autoresearch/.git
+test -f /workspace/autoresearch/pyproject.toml
+test -z "$(git -C /workspace/autoresearch status --porcelain)"
+git -C /workspace/autoresearch rev-parse HEAD
 PAIR_ROOT=/workspace/autoresearch-pairs/jubias-pair-001
-TASK_COMMIT=$(git -C /workspace/autoresearch rev-parse codex/jigsaw-unintended-bias)
 for ARM in baseline analogy; do
   mkdir -p "$PAIR_ROOT/$ARM/home"
-  git clone --no-local --single-branch --branch codex/jigsaw-unintended-bias \
-    /workspace/autoresearch "$PAIR_ROOT/$ARM/repo"
-  git -C "$PAIR_ROOT/$ARM/repo" checkout --detach "$TASK_COMMIT"
 done
 ```
 
-这里仅固定两个 clone 的起点；**run 分支由之后启动的 agent 创建**，格式为 `run/YYYYMMDD_HHMMSS-jigsaw-unintended-bias-in-toxicity-classification-baseline` 或 `...-analogy`。除首次创建并切换分支外，program 仍不允许 agent commit、push 或 reset。
+**run 分支和 worktree 都由之后启动的 agent 创建**，无需提前建空目录。分支格式为 `run/YYYYMMDD_HHMMSS-jigsaw-unintended-bias-in-toxicity-classification-baseline` 或 `...-analogy`，开始时间使用 UTC。两组的 `AUTORESEARCH_REPO_DIR` 分别为：
+
+```text
+/workspace/autoresearch/worktrees/jubias-pair-001-baseline
+/workspace/autoresearch/worktrees/jubias-pair-001-analogy
+```
+
+两份 Job 各自把主仓库 HEAD 记入 `/tmp/autoresearch-start-commit`，agent 据此创建 worktree，并检查主仓库仍干净且 HEAD 未变。两个 Job 启动前至本轮结束，保持主仓库不变；启动 Claude 前核对两个 Pod 记录的 SHA 相同。已有的分支或 worktree 不会被覆盖，请为新一对实验使用新名称。
 
 核对 YAML 中的 PVC 路径。`subPath` 相对 PVC 根目录，不带 `/workspace/`：
 
 | 内容 | 默认 PVC subPath | Pod 内路径 |
 | --- | --- | --- |
+| 主仓库，含两组 worktree | `autoresearch` | `/workspace/autoresearch` |
+| 本组会话与 Python 环境 | `autoresearch-pairs/jubias-pair-001/{baseline或analogy}/home` | `/root` |
 | 固定数据 | `autoresearch/results/jigsaw-data` | `/data/jigsaw-prepared` |
+| 固定数据的主仓库路径，同样只读 | `autoresearch/results/jigsaw-data` | `/workspace/autoresearch/results/jigsaw-data` |
 | 任务说明 | `data/mlebench/jigsaw-unintended-bias-in-toxicity-classification/prepared/public/description.md` | `/data/task/description.md` |
 | KB，仅 analogy | `Agentic_Knowledge_Base/output/paper_corpus` | `/data/paper-corpus` |
 | 已安装的 Claude Code | `home/.local` | `/workspace/home/.local` |
@@ -58,7 +72,7 @@ Claude 路径按原 dev Pod 的 `HOME=/workspace/home` 和原生安装布局配�
 
 数据提前准备一次，实验时只读；KB 目录需有 `records.jsonl` 和 `manifest.json`。实际路径不同就改 YAML。analogy Job 中的 `ANALOGY_CORPUS_DIR` 配置 KB 挂载位置；`ANALOGY_MODEL` / `ANALOGY_BASE_URL` 暂沿用 MLEvolve 的 `gpt-5.6-sol` / `http://cliproxy:8317/v1`，按实际接口修改。
 
-下一对实验请同时换 Job 名、pair label、`RUN_TAG` 及 repo/home 的 `subPath`，使用新目录。实验期间不要从 dev Pod 修改共享固定数据、语料或 Claude 安装。
+下一对实验请同时换 Job 名、pair label、`RUN_TAG`、`AUTORESEARCH_REPO_DIR` 及本组 home 的 `subPath`；主仓库的 `subPath: autoresearch` 保持不变。实验期间不要从 dev Pod 修改主仓库、共享固定数据、语料或 Claude 安装。
 
 ## 2. 创建 Job，等待安装完成
 
@@ -71,7 +85,9 @@ kubectl --context nautilus -n ecepxie get pods -l experiment-pair=jubias-pair-00
 kubectl --context nautilus -n ecepxie logs -f job/autoresearch-jubias-pair-001-baseline
 ```
 
-Job 内已依次执行 `apt-get update`、安装 `git curl ca-certificates gcc`、安装固定版本 uv、`uv sync --locked --python 3.10`、检查已有 Claude 可执行文件。看到 `Setup complete` 或 Pod `Ready` 后进入；安装失败会保留错误日志并退出。
+Job 先检查主仓库路径，再执行 `apt-get update`、安装 `git curl ca-certificates gcc` 和固定版本 uv，确认主仓库干净并记录 HEAD，然后用 `uv sync --project "$AUTORESEARCH_SOURCE_DIR" --locked --python 3.10` 安装到本组独立环境，最后检查已有 Claude 可执行文件。看到 `Setup complete` 或 Pod `Ready` 后进入；此时 worktree 尚未创建。安装失败会保留错误日志并退出。
+
+如果集群里已经创建了旧版 Job，修改本地 YAML 不会改变现有 Pod 的挂载和启动流程。当前这些非 suspended Job 应重建以使用新的模板；如果尚未启动实验，可以删除对应旧 Job 后重新 apply。已开始过实验则按新一对运行准备新目录，避免复用旧产物。[Job 调度字段更新规则](https://kubernetes.io/docs/concepts/workloads/controllers/job/#mutable-scheduling-directives)
 
 ```bash
 kubectl --context nautilus -n ecepxie exec -it job/autoresearch-jubias-pair-001-baseline -- bash
@@ -81,11 +97,14 @@ kubectl --context nautilus -n ecepxie exec -it job/autoresearch-jubias-pair-001-
 
 ## 3. 直接启动 Claude，提供 prompt
 
-两个 Pod 都在 `/workspace/autoresearch`。可以先检查 GPU：
+两个 Pod 初始都在共享主仓库 `/workspace/autoresearch`。分别查看记录的起始 SHA，确认两组一致，并检查 GPU：
 
 ```bash
+cat /tmp/autoresearch-start-commit
 uv run --no-sync python -c 'import torch; assert torch.cuda.is_available(); print(torch.__version__, torch.cuda.get_device_name(0))'
 ```
+
+Claude 从这里读取本组 program 后创建 worktree。后续每次 shell 调用都必须显式进入 `$AUTORESEARCH_REPO_DIR`，编辑工具使用该目录下的绝对路径；一次 shell 的 `cd` 不会改变 Claude 的启动目录或其他工具的默认目录。这些要求已写入两份 program。
 
 只有 analogy Pod 需要额外设置检索 API key；它与 Claude 登录不同，不写入 YAML、prompt 或 Git：
 
@@ -104,7 +123,8 @@ baseline prompt：
 
 ```text
 阅读并执行 program.md，开始 Jigsaw baseline 实验。
-这是本组独立的工作目录；任何修改之前先创建并 checkout 新的 run 分支。
+当前目录是共享主仓库；按 program 先用 git worktree add 创建 run 分支和 $AUTORESEARCH_REPO_DIR。
+之后只在本组 worktree 修改和运行；禁止在主仓库 checkout 或编辑。
 Job 自启动起限时6小时，不要从现在重新计算6小时。
 完全不使用 analogy agent、知识库、类比缓存或报告；不 commit 或 push。
 ```
@@ -113,7 +133,8 @@ analogy prompt：
 
 ```text
 阅读并执行 program-analogy.md，开始 Jigsaw analogy 实验。
-这是本组独立的工作目录；任何修改之前先创建并 checkout 新的 run 分支。
+当前目录是共享主仓库；按 program 先用 git worktree add 创建 run 分支和 $AUTORESEARCH_REPO_DIR。
+之后只在本组 worktree 修改和运行；禁止在主仓库 checkout 或编辑。
 Job 自启动起限时6小时，不要从现在重新计算6小时。
 必须在 draft 和每次 improve 前使用 analogy agent，不修改其代码；不 commit 或 push。
 ```
@@ -130,9 +151,11 @@ kubectl --context nautilus -n ecepxie get jobs -l experiment-pair=jubias-pair-00
 Pod 到期后回到 dev Pod，从以下 PVC 目录读取结果：
 
 ```text
-/workspace/autoresearch-pairs/jubias-pair-001/baseline/repo/results/jubias-pair-001-baseline/
-/workspace/autoresearch-pairs/jubias-pair-001/analogy/repo/results/jubias-pair-001-analogy/
+/workspace/autoresearch/worktrees/jubias-pair-001-baseline/results/jubias-pair-001-baseline/
+/workspace/autoresearch/worktrees/jubias-pair-001-analogy/results/jubias-pair-001-analogy/
 ```
+
+本组修改后的 `train.py` 也保留在对应 worktree。agent 不删除 worktree，也不提交代码；后续 Git 操作由你处理。
 
 两组共用中性 `experiment_artifacts.py` 保存训练前源码并绑定完成后的指标、配置、日志；baseline 不调用 analogy 的任何命令。helper 只负责结果绑定，不负责限时。比较 `source.json.execution_status == "completed"` 且 `completed_at_utc` 早于实际 Job 截止时间的候选；未完成或被中断的候选不计分。没有完成候选就报告无有效结果。
 

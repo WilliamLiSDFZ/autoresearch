@@ -1,5 +1,5 @@
-# Edit the pair name, PVC subPaths and exact GPU model together in BOTH Jobs.
-# Stage the files/directories first; see docs/jigsaw_comparison.md.
+# Edit the pair name, PVC subPaths and GPU allow-list together in BOTH Jobs.
+# Mount the existing main repository; the agent creates its run worktree.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -26,8 +26,28 @@ spec:
       automountServiceAccountToken: false
       hostPID: false
       shareProcessNamespace: false
-      nodeSelector:
-        nvidia.com/gpu.product: NVIDIA-A40
+      # Accept multiple GPU models with at least 24 GB; record the allocated model.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values:
+                      - NVIDIA-L4
+                      - NVIDIA-GeForce-RTX-3090
+                      - NVIDIA-GeForce-RTX-4090
+                      - NVIDIA-A10
+                      - NVIDIA-RTX-A5000
+                      - NVIDIA-A40
+                      - NVIDIA-RTX-A6000
+                      - NVIDIA-L40
+                      - NVIDIA-L40S
+                      - NVIDIA-A100-PCIE-40GB
+                      - NVIDIA-A100-SXM4-40GB
+                      - NVIDIA-A100-80GB-PCIe
+                      - NVIDIA-A100-SXM4-80GB
       containers:
         - name: researcher
           image: pytorch/pytorch:2.7.1-cuda12.6-cudnn9-runtime
@@ -37,10 +57,19 @@ spec:
           args:
             - |
               set -euo pipefail
+              if [ ! -f "$AUTORESEARCH_SOURCE_DIR/pyproject.toml" ] || [ ! -d "$AUTORESEARCH_SOURCE_DIR/.git" ]; then
+                printf 'Expected the main Git checkout at %s; check the PVC subPath.\n' "$AUTORESEARCH_SOURCE_DIR" >&2
+                exit 1
+              fi
               apt-get update
               apt-get install -y git curl ca-certificates gcc
               python -m pip install uv==0.12.16
-              uv sync --locked --python 3.10
+              if [ -n "$(git --no-optional-locks -C "$AUTORESEARCH_SOURCE_DIR" status --porcelain)" ]; then
+                printf 'The shared main checkout must be clean before starting research.\n' >&2
+                exit 1
+              fi
+              git -C "$AUTORESEARCH_SOURCE_DIR" rev-parse HEAD > /tmp/autoresearch-start-commit
+              uv sync --project "$AUTORESEARCH_SOURCE_DIR" --locked --python 3.10
               if [ ! -x "$CLAUDE_BIN" ]; then
                 printf 'Claude Code is not executable at %s; check the PVC mount and CLAUDE_BIN.\n' "$CLAUDE_BIN" >&2
                 exit 1
@@ -48,7 +77,7 @@ spec:
               ln -s "$CLAUDE_BIN" /usr/local/bin/claude
               claude --version
               touch /tmp/autoresearch-ready
-              printf 'Setup complete. Enter this Pod and run claude manually.\n'
+              printf 'Setup complete. Run claude here; the agent must create its worktree at %s.\n' "$AUTORESEARCH_REPO_DIR"
               # The agent signals the end of the entire research run after saving results.
               while [ ! -f /tmp/autoresearch-finished ] && [ ! -f /tmp/autoresearch-failed ]; do
                 sleep 2
@@ -68,14 +97,20 @@ spec:
             # Keep the original mount path so absolute symlinks still resolve.
             - name: CLAUDE_BIN
               value: /workspace/home/.local/bin/claude
-            - name: AUTORESEARCH_REPO_DIR
+            - name: AUTORESEARCH_SOURCE_DIR
               value: /workspace/autoresearch
+            # Created by the agent with git worktree add; never checkout the main tree.
+            - name: AUTORESEARCH_REPO_DIR
+              value: /workspace/autoresearch/worktrees/jubias-pair-001-analogy
+            # /root is a different PVC subPath in each Pod.
+            - name: UV_PROJECT_ENVIRONMENT
+              value: /root/.venvs/autoresearch
             - name: AUTORESEARCH_JIGSAW_DIR
               value: /data/jigsaw-prepared
             - name: AUTORESEARCH_TASK_FILE
               value: /data/task/description.md
             - name: AUTORESEARCH_RESOURCES
-              value: '1x NVIDIA-A40; CPU=8; RAM=48Gi'
+              value: '1x NVIDIA GPU from allow-list (>=24GB VRAM); CPU=8; RAM=48Gi'
             # KB path and model endpoint are configured here. Credentials are
             # entered manually inside this Pod before launching Claude.
             - name: ANALOGY_CORPUS_DIR
@@ -110,12 +145,17 @@ spec:
           volumeMounts:
             - name: workspace
               mountPath: /workspace/autoresearch
-              subPath: autoresearch-pairs/jubias-pair-001/analogy/repo
+              subPath: autoresearch
             - name: workspace
               mountPath: /root
               subPath: autoresearch-pairs/jubias-pair-001/analogy/home
             - name: workspace
               mountPath: /data/jigsaw-prepared
+              subPath: autoresearch/results/jigsaw-data
+              readOnly: true
+            # Protect the same dataset at its path inside the shared main repository.
+            - name: workspace
+              mountPath: /workspace/autoresearch/results/jigsaw-data
               subPath: autoresearch/results/jigsaw-data
               readOnly: true
             - name: workspace

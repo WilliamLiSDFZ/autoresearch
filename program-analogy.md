@@ -6,34 +6,48 @@ This is an experiment to have the LLM do its own research on Jigsaw Unintended B
 
 To set up a new experiment, verify the user's existing setup:
 
-1. **Create the run branch before any changes**: `EXPERIMENT_ARM` must be `analogy`. In `$AUTORESEARCH_REPO_DIR`, first use read-only Git commands (`git status --short`, `git rev-parse HEAD`) to verify a clean checkout at the intended shared starting commit. Both arms must start from independent fresh checkouts of the same task commit, with the upstream `train.py` and no prior experiment artifacts. Stop if the checkout is dirty or its HEAD differs from the common starting SHA supplied by the user. Then create and switch to the new branch with `git switch -c "run/$(date -u +%Y%m%d_%H%M%S)-jigsaw-unintended-bias-in-toxicity-classification-analogy"`; if the user specified a new branch name, use that exact name instead. Never overwrite or reuse an existing branch. This initial branch creation is the only permitted Git mutation: do not commit, push, reset, stage files, or switch branches again. Do not edit files or write run artifacts until branch creation succeeds. `RUN_TAG` is the separate Job run identifier (for example, `jubias-pair-001-analogy`), not the branch name.
-2. **Check the runtime context**: The Job installs its tools and runs `uv sync` automatically; the user enters the ready Pod and starts `claude` directly. The Job has `activeDeadlineSeconds: 21600` (six hours), measured from its `.status.startTime`. Queueing, installation, and waiting for the user to enter the Pod all consume that time. Kubernetes terminates the Pod at the Job deadline. If the user supplies an absolute UTC deadline, use it for planning; otherwise the deadline is unknown to you. Do not invent it, restart a six-hour clock at Claude launch, or add a timer script.
-3. **Read the in-scope files**: Read `$AUTORESEARCH_TASK_FILE`, `prepare.py`, and `train.py` for the task, fixed data/evaluation, and editable implementation. `README.md` may be consulted for upstream/Jigsaw context only; the arm-specific scope below takes precedence over its links and instructions. This is the analogy arm: use the fixed analogy CLI at draft and improve as described below; its code is read-only. Use the neutral artifact helper shared with baseline, not analogy snapshot/complete commands.
-4. **Verify data exists**: Run `uv run --no-sync prepare.py verify --prepared-dir "$AUTORESEARCH_JIGSAW_DIR"`. Both arms use the same read-only prepared split at `/data/jigsaw-prepared`. If it is missing or fails verification, stop and report the problem; do not prepare or repair it. Record `prepared_id` from its verified `manifest.json`.
-5. **Initialize results.tsv**: Set the paths below and create `$RUN_DIR/results.tsv` with just the five-column header shown under Logging results. Record the actual branch, starting Git SHA, task-file SHA-256, verified prepared ID, initial seed, fixed resources, Job `RUN_TAG`, and the user-provided UTC deadline if any in `$RUN_DIR/run.json`. Leave an unavailable deadline explicitly unknown. Keep all new experiment artifacts under this run directory. Do not read other arms' or previous runs' code, logs, models, reports, or histories.
+1. **Create this arm's worktree before any edits**: `EXPERIMENT_ARM` must be `analogy`. Claude starts in the shared main repository at `$AUTORESEARCH_SOURCE_DIR` (`/workspace/autoresearch`); `$AUTORESEARCH_REPO_DIR` is this arm's fixed, not-yet-created worktree path. Read `BASE_COMMIT` from the Job's `/tmp/autoresearch-start-commit` and use read-only Git checks to confirm that the main checkout is clean and its HEAD still matches that recorded commit. Both arms must use the same starting SHA and upstream `train.py`. Stop on a mismatch. Create a new branch and worktree using the commands below; if the user specified a new branch name, use that exact name instead of the default `BRANCH_NAME`. Both the branch and worktree path must be new: never force, overwrite, delete, or reuse an existing one. Only the worktree's parent directory may be created before `git worktree add`. A transient Git lock error may be retried a few times; never delete a lock file. This initial `worktree add -b` is the only permitted Git mutation: do not commit, push, reset, stage files, switch branches, prune, or remove worktrees. Do not edit the main checkout or the other arm's worktree. `RUN_TAG` is the separate Job run identifier, not the branch name.
+
+   ```bash
+   set -eu
+   BASE_COMMIT=$(cat /tmp/autoresearch-start-commit)
+   test -n "$BASE_COMMIT"
+   test "$(git -C "$AUTORESEARCH_SOURCE_DIR" rev-parse HEAD)" = "$BASE_COMMIT"
+   test -z "$(git -C "$AUTORESEARCH_SOURCE_DIR" status --porcelain)"
+   test ! -e "$AUTORESEARCH_REPO_DIR"
+   test ! -L "$AUTORESEARCH_REPO_DIR"
+   BRANCH_NAME="run/$(date -u +%Y%m%d_%H%M%S)-jigsaw-unintended-bias-in-toxicity-classification-analogy"
+   mkdir -p "$(dirname "$AUTORESEARCH_REPO_DIR")"
+   git -C "$AUTORESEARCH_SOURCE_DIR" worktree add -b "$BRANCH_NAME" "$AUTORESEARCH_REPO_DIR" "$BASE_COMMIT"
+   cd "$AUTORESEARCH_REPO_DIR"
+   ```
+2. **Check the runtime context**: The Job installs its tools and this arm's dependencies from the recorded main-repository commit; the user enters the ready Pod and starts `claude` directly. Preserve `UV_PROJECT_ENVIRONMENT=/root/.venvs/autoresearch`, which uses this arm's own persistent `/root`; do not override it, reinstall dependencies, or create a worktree `.venv`. The Job has `activeDeadlineSeconds: 21600` (six hours), measured from its `.status.startTime`. Queueing, installation, and waiting for the user to enter the Pod all consume that time. Kubernetes terminates the Pod at the Job deadline. If the user supplies an absolute UTC deadline, use it for planning; otherwise the deadline is unknown to you. Do not invent it, restart a six-hour clock at Claude launch, or add a timer script.
+3. **Read the in-scope files**: Read `$AUTORESEARCH_TASK_FILE`, `$AUTORESEARCH_REPO_DIR/prepare.py`, and `$AUTORESEARCH_REPO_DIR/train.py` for the task, fixed data/evaluation, and editable implementation. All repository files and helpers mentioned below refer to this worktree. The main repository's `AGENTS.md` still applies; do not copy or edit it. `README.md` may be consulted for upstream/Jigsaw context only; the arm-specific scope below takes precedence over its links and instructions. This is the analogy arm: use the fixed analogy CLI at draft and improve as described below; its code is read-only. Use the neutral artifact helper shared with baseline, not analogy snapshot/complete commands.
+4. **Verify data exists**: Run `cd "$AUTORESEARCH_REPO_DIR" && uv run --no-sync prepare.py verify --prepared-dir "$AUTORESEARCH_JIGSAW_DIR"`. Both arms use the same read-only prepared split at `/data/jigsaw-prepared`. If it is missing or fails verification, stop and report the problem; do not prepare or repair it. Record `prepared_id` from its verified `manifest.json`.
+5. **Initialize results.tsv**: Set the paths below and create `$RUN_DIR/results.tsv` with just the five-column header shown under Logging results. Record the actual branch, recorded starting Git SHA, main-repository path, worktree path, `UV_PROJECT_ENVIRONMENT` path, task-file SHA-256, verified prepared ID, initial seed, fixed resources, Job `RUN_TAG`, and the user-provided UTC deadline if any in `$RUN_DIR/run.json`. Leave an unavailable deadline explicitly unknown. Keep all new experiment artifacts under this run directory. Shared directories may be accessible; isolation relies on following this protocol. Do not read other arms' or previous runs' code, logs, models, reports, or histories.
 6. **Go**: Once these checks pass, start drafting. Do not wait for another confirmation.
 
 ```bash
 cd "$AUTORESEARCH_REPO_DIR"
 RUN_DIR="$AUTORESEARCH_REPO_DIR/results/$RUN_TAG"
-mkdir -p "$RUN_DIR"  # Only after the new branch has been created.
+mkdir -p "$RUN_DIR"  # Only after this arm's worktree has been created.
 PREPARED_ID=$(python -c 'import json,os; print(json.load(open(os.path.join(os.environ["AUTORESEARCH_JIGSAW_DIR"], "manifest.json")))["prepared_id"])')
 ```
 
-Shell tool calls may start fresh processes: recreate these variables and the current trial paths inside each call, and fail on unset variables (`set -u`). Do not assume an earlier shell's assignments survive. Persist the best completed artifact path in `$RUN_DIR/best.json` and reload it before using `BEST_ARTIFACT_DIR`.
+**Stay in this worktree**: After creation, explicitly start every shell tool call with `cd "$AUTORESEARCH_REPO_DIR"`. One shell's `cd` does not change Claude's launch directory or later tool calls. Use absolute paths under `$AUTORESEARCH_REPO_DIR` with every file-editing tool; never edit a relative `train.py` from Claude's main-repository directory. Recreate these variables and the current trial paths inside each call, and fail on unset variables (`set -u`). Do not assume an earlier shell's assignments survive. Persist the best completed artifact path in `$RUN_DIR/best.json` and reload it before using `BEST_ARTIFACT_DIR`.
 
 ## Experimentation
 
 Each experiment runs on a single GPU within the Job's six-hour limit. The remaining time includes reading, reasoning, retrieval where enabled, editing, training, evaluation, debugging, and bookkeeping. Both arms have the same Job limit, but queueing, installation, and delayed manual entry can leave different amounts of time for Claude; do not describe this as six hours of agent work or equal LLM token usage/API cost. Save results promptly because Kubernetes may stop the Pod during any operation. If an absolute deadline was provided, check the actual UTC time before starting or finalizing a candidate and do not continue at or after that deadline. The artifact helper binds source and results; it does not enforce the Job deadline.
 
 **What you CAN do:**
-- Modify `train.py` — this is the only source file you edit. Everything is fair game: model architecture, optimizer, hyperparameters, training loop, batch size, model size, etc.
+- Modify `$AUTORESEARCH_REPO_DIR/train.py` — this is the only source file you edit. Everything is fair game: model architecture, optimizer, hyperparameters, training loop, batch size, model size, etc.
 - Write run artifacts such as source snapshots, logs, metrics, configurations, predictions, and checkpoints under `$RUN_DIR`. Use the fixed helpers for snapshots and completion receipts.
 - Signal final shutdown using the two `/tmp` marker files described below; these are lifecycle signals, not source edits.
 
 **What you CANNOT do:**
 - Modify `prepare.py` or the prepared data. They contain the fixed data split, labels, and evaluation. Fit learned preprocessing only on training rows; do not train on validation or private test labels.
-- Modify the program files, helpers, analogy implementation, or dependency files; install new packages; or change the environment. Use the already installed locked dependencies.
+- Modify the main checkout, another worktree, the program files, helpers, analogy implementation, or dependency files; install new packages; or change the environment. Use this arm's already installed locked dependencies through the unchanged `UV_PROJECT_ENVIRONMENT`.
 - Modify the evaluation harness. The `evaluate_predictions` function in `prepare.py` is the ground truth metric: the Jigsaw composite AUC using continuous probabilities.
 - Extend or restart the Job, continue after a known deadline, or count incomplete, late, or failed candidates as successful results.
 
@@ -50,6 +64,7 @@ Each experiment runs on a single GPU within the Job's six-hour limit. The remain
 **Candidate artifacts**: `train.py` must use `AUTORESEARCH_ARTIFACT_DIR` as its output directory and write `metrics.json` containing the complete dictionary returned by `evaluate_predictions()`, `config.json` describing the actual configuration, and `validation_predictions.npy` containing the same continuous probabilities in validation row order. Keep `run.log` and any checkpoints in that directory. Never edit a source snapshot, completion receipt, or finalized result. Every attempt, including a debug retry, gets a new ID and directory:
 
 ```bash
+cd "$AUTORESEARCH_REPO_DIR"
 TRIAL_ID=trial0001  # Increment for every attempt; never reuse a directory.
 ARTIFACT_DIR="$RUN_DIR/trials/$TRIAL_ID"
 export AUTORESEARCH_ARTIFACT_DIR="$ARTIFACT_DIR"
@@ -62,7 +77,7 @@ python experiment_artifacts.py complete \
   --artifact-dir "$ARTIFACT_DIR"
 ```
 
-The snapshot must succeed before training starts. Do not change `train.py` while that candidate runs or before `complete` checks it. A printed score alone is not a completed result. Keep the path of the best eligible candidate as `BEST_ARTIFACT_DIR`; restore its implementation with `cp "$BEST_ARTIFACT_DIR/source.py" train.py` after rejecting or abandoning a later candidate. If the Job terminates during a candidate, its pending result is ineligible and the last completed best snapshot remains authoritative. Do not finalize an interrupted candidate later or after a known deadline.
+The snapshot must succeed before training starts. Do not change `train.py` while that candidate runs or before `complete` checks it. A printed score alone is not a completed result. Keep the path of the best eligible candidate as `BEST_ARTIFACT_DIR`; restore its implementation with `cp "$BEST_ARTIFACT_DIR/source.py" "$AUTORESEARCH_REPO_DIR/train.py"` after rejecting or abandoning a later candidate. If the Job terminates during a candidate, its pending result is ineligible and the last completed best snapshot remains authoritative. Do not finalize an interrupted candidate later or after a known deadline.
 
 **Analogy at draft and improve**: Keep the CLI's invocation manifests and `model_calls.json` so the extra retrieval LLM usage can be reported separately. Before designing or editing the first classifier, preflight the fixed retrieval protocol and run a `draft` call. Before every subsequent improvement idea or source edit, run `improve` using the current best eligible candidate's artifact directory. A small debug fix reuses that attempt's report; a different experimental idea requires a new call. Until the first eligible candidate exists, a new design still uses `draft` with no parent. No improve call may use an incomplete, failed, stale, or other run's parent.
 
@@ -71,6 +86,7 @@ The user configures `ANALOGY_MODEL`, `ANALOGY_BASE_URL`, and API credentials in 
 Run these commands in Bash, recreating the same argument array and paths inside each shell tool call:
 
 ```bash
+cd "$AUTORESEARCH_REPO_DIR"
 ANALOGY_ARGS=(
   --task-file "$AUTORESEARCH_TASK_FILE"
   --prepared-dir "$AUTORESEARCH_JIGSAW_DIR"
@@ -118,6 +134,7 @@ peak_vram_mb:     45060.2
 Training duration depends on the model and training schedule. You can extract the key metric from the candidate's log file:
 
 ```bash
+cd "$AUTORESEARCH_REPO_DIR"
 grep "^val_score:" "$ARTIFACT_DIR/run.log"
 ```
 
@@ -149,19 +166,19 @@ d4e5f6a			crash	trial0004 double model width (OOM)
 
 ## The experiment loop
 
-The experiment runs on the branch you created during Setup and recorded in `$RUN_DIR/run.json`. After that initial creation, Git branches, the index, and history stay unchanged; source snapshots identify candidates.
+The experiment runs only in the worktree and branch you created during Setup and recorded in `$RUN_DIR/run.json`. After that initial creation, Git branches, the index, and history stay unchanged; source snapshots identify candidates.
 
 LOOP UNTIL JOB TERMINATION, A KNOWN DEADLINE, OR HUMAN INTERRUPTION:
 
-1. Check the current branch/starting commit with read-only commands and, if a deadline was supplied, the actual UTC time remaining. Identify the current best completed candidate, if any.
+1. Explicitly enter `$AUTORESEARCH_REPO_DIR`, check its branch/starting commit with read-only commands and, if a deadline was supplied, the actual UTC time remaining. Identify the current best completed candidate, if any.
 2. Before a new design, perform the required draft/improve retrieval described above (debug fixes reuse the current report). Tune `train.py` with one experimental idea by directly hacking the code. Start improvements from the best snapshot.
 3. Allocate a new trial ID and take the pre-execution source snapshot with the neutral `experiment_artifacts.py` helper above.
-4. Run the experiment: `uv run --no-sync train.py > "$ARTIFACT_DIR/run.log" 2>&1` (redirect everything — do NOT use tee or let output flood your context).
+4. Run the experiment: `cd "$AUTORESEARCH_REPO_DIR" && uv run --no-sync train.py > "$ARTIFACT_DIR/run.log" 2>&1` (redirect everything — do NOT use tee or let output flood your context).
 5. Read out the results: `grep "^val_score:\|^peak_vram_mb:" "$ARTIFACT_DIR/run.log"`. Check exit status and outputs; run `complete` promptly after success, before any known deadline. The helper does not check the deadline for you.
 6. If training or completion fails, inspect `tail -n 50 "$ARTIFACT_DIR/run.log"` and the helper error. Log the failed attempt. An easy fix may be tried while the Job is running and before any known deadline, but it needs a new trial ID and snapshot; never finalize the old attempt with new code.
 7. Record the result in the TSV. Only a valid completed receipt makes a candidate eligible for `keep` or `discard`.
 8. If val_score improved (higher), keep this candidate and update `BEST_ARTIFACT_DIR` and `$RUN_DIR/best.json` with its artifact path, source SHA, and score. The first eligible result becomes best; an equal score may be kept only for a clear simplification.
-9. If the candidate is rejected or crashes, restore `train.py` from `BEST_ARTIFACT_DIR/source.py` when a best exists. Preserve all trial artifacts. If no candidate has completed yet, continue the draft/debug process while the Job is running and before any known deadline.
+9. If the candidate is rejected or crashes, restore `$AUTORESEARCH_REPO_DIR/train.py` from `BEST_ARTIFACT_DIR/source.py` when a best exists. Preserve all trial artifacts. If no candidate has completed yet, continue the draft/debug process while the Job is running and before any known deadline.
 
 The idea is that you are a completely autonomous researcher trying things out. If they work, keep. If they don't, discard. Advance the best source snapshot so that you can iterate, without changing Git branches, the index, or history.
 
