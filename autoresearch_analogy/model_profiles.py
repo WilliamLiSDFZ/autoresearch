@@ -1,0 +1,222 @@
+# Adapted from MLEvolve/llm/model_profiles.py; kept independent of MLEvolve.
+"""Model-specific parameter profiles for OpenAI-compatible backends.
+
+Usage:
+    profile = get_profile(model_name, use_thinking=True)
+    # Returns a dict with any subset of:
+    #   temperature, top_p, presence_penalty  — standard OpenAI Chat params
+    #   top_k, enable_thinking                — go into extra_body (Qwen-specific)
+
+    thinking_extra = get_thinking_extra_body(model_name)
+    # Returns model-specific extra_body params for enabling thinking mode
+
+To add a new model family, add an entry to _PROFILES below.
+Each entry has two modes: "thinking" and "non_thinking".
+Only include params that differ from provider defaults — missing keys are skipped.
+Longer prefixes take precedence (e.g. "gpt-4o" wins over "gpt").
+"""
+
+from __future__ import annotations
+
+_PROFILES: dict[str, dict] = {
+    "gpt-6": {"thinking": {}, "non_thinking": {}},
+    "gpt-5.6-sol": {"thinking": {}, "non_thinking": {}},
+    # ── Qwen series ──────────────────────────────────────────────────────
+    "qwen": {
+        "thinking": {
+            # Precise coding tasks
+            "temperature": 0.6, "top_p": 0.95, "top_k": 20,
+            "presence_penalty": 0.0, "enable_thinking": True,
+        },
+        "non_thinking": {
+            # General tasks (used for planner / structured output)
+            "temperature": 0.7, "top_p": 0.8, "top_k": 20,
+            "presence_penalty": 1.5, "enable_thinking": False,
+        },
+    },
+
+    # ── GPT series ───
+    "gpt": {
+        "thinking": {
+            "temperature": 1.0,
+        },
+        "non_thinking": {
+            "temperature": 0.7,
+        },
+    },
+
+    # ── Kimi series (K2.5, K2.6) ───
+    # Kimi reasoning models only allow temperature=1
+    "kimi": {
+        "thinking": {
+            "temperature": 1.0, "top_p": 0.95,
+        },
+        "non_thinking": {
+            "temperature": 1.0, "top_p": 0.95,
+        },
+    },
+
+    # ── DeepSeek series (V4-pro, V4-flash) ───
+    "deepseek": {
+        "thinking": {
+            "temperature": 1.0,
+        },
+        "non_thinking": {
+            "temperature": 1.0,
+        },
+    },
+
+    # ── Claude series (Opus 4.6/4.7, Sonnet 4.6) ───
+    # Adaptive thinking is the recommended mode on Opus 4.6+/Sonnet 4.6+;
+    # required on Opus 4.7. No budget_tokens needed.
+    "claude": {
+        "thinking": {
+            "temperature": 1.0,
+        },
+        "non_thinking": {
+            "temperature": 1.0,
+        },
+    },
+
+    # ── Fallback for any unrecognised model ──────────────────────────────────
+    "default": {
+        "thinking":     {},
+        "non_thinking": {},
+    },
+}
+
+# Model-specific extra_body params for enabling thinking/reasoning mode.
+# Synced from agentic-mle llm_client.py _MODEL_CONFIGS.
+_THINKING_EXTRA_BODY: dict[str, dict] = {
+    "qwen":     {"enable_thinking": True},
+    "kimi":     {},                          # Kimi enables thinking by default
+    "deepseek": {"thinking": {"type": "enabled"}, "reasoning_effort": "high"},
+    "gpt":      {},
+    # GPT-5 family: reasoning models with a tunable effort dial
+    # (none/low/medium/high/xhigh/max). MLE search benefits from long reasoning chains,
+    # so run at "high" — note this increases output tokens and therefore cost.
+    "gpt-5":    {"reasoning_effort": "high"},
+    "gpt-6":    {"reasoning_effort": "high"},
+    # Claude Opus 4.6/4.7 + Sonnet 4.6: adaptive thinking is the recommended
+    # mode (required on Opus 4.7). Auto-enables interleaved thinking.
+    "claude":   {"thinking": {"type": "adaptive"}},
+}
+
+# Models that only support {"type": "json_object"}, not json_schema + strict.
+_NO_JSON_SCHEMA_PREFIXES = ("deepseek",)
+
+# Models where thinking mode and json_schema are mutually exclusive.
+# generate() will drop json_schema for these models to keep thinking enabled,
+# relying on prompt instructions + post-processing for JSON extraction.
+_THINKING_JSON_INCOMPATIBLE = ("qwen",)
+
+# Models that don't support tool_choice="required" / specific function targeting.
+# Claude with extended thinking only supports tool_choice="auto" or "none";
+# specific tool name will return a 400 error.
+_NO_TOOL_CHOICE_REQUIRED_PREFIXES = ("kimi", "deepseek", "claude")
+
+# Models that REJECT sampling params (temperature / top_p / presence_penalty) outright —
+# sending them returns a 400. Sampling params were removed on Claude Opus 4.7+ and Fable 5;
+# OpenAI's GPT-5 family are reasoning models and reject them too.
+_NO_SAMPLING_PARAMS_PREFIXES = ("claude-opus-4-7", "claude-opus-4-8", "claude-fable", "fable",
+                                "gpt-6", "gpt-5", "o1", "o3", "o4")
+
+# Models that require `max_completion_tokens` instead of `max_tokens` on Chat Completions.
+# OpenAI reasoning models 400 on `max_tokens`: "Unsupported parameter".
+_MAX_COMPLETION_TOKENS_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+
+# 判断目标接口是否允许传入思考模式参数。
+def supports_thinking_params(base_url: str | None) -> bool:
+    """False for endpoints that reject Claude's extended/adaptive thinking.
+
+    Anthropic's OpenAI-compatibility layer (api.anthropic.com/v1/) returns
+    400 "Adaptive thinking is not available via the OpenAI compatibility endpoint."
+    Native Anthropic and pass-through gateways (OpenRouter, ...) do support it.
+    """
+    return "api.anthropic.com" not in (base_url or "")
+
+
+# 将模型名称转为小写并移除供应商前缀。
+def normalize_model_name(model_name: str) -> str:
+    """Lowercase and drop any provider prefix.
+
+    Gateways namespace models (e.g. OpenRouter's 'anthropic/claude-opus-4-8'), which
+    would otherwise defeat every startswith() check below.
+    """
+    return (model_name or "").lower().rsplit("/", 1)[-1]
+
+
+# 判断模型的思考模式是否与 JSON Schema 输出冲突。
+def thinking_json_incompatible(model_name: str) -> bool:
+    """Return True for models that cannot use thinking + json_schema simultaneously."""
+    name = normalize_model_name(model_name)
+    return any(name.startswith(p) for p in _THINKING_JSON_INCOMPATIBLE)
+
+
+# 判断模型是否支持 JSON Schema 结构化输出。
+def supports_json_schema(model_name: str) -> bool:
+    """Return False for models that require json_object instead of json_schema+strict."""
+    name = normalize_model_name(model_name)
+    return not any(name.startswith(p) for p in _NO_JSON_SCHEMA_PREFIXES)
+
+
+# 判断模型是否允许强制调用工具。
+def supports_tool_choice_required(model_name: str) -> bool:
+    """Return False for models that don't support tool_choice=required."""
+    name = normalize_model_name(model_name)
+    return not any(name.startswith(p) for p in _NO_TOOL_CHOICE_REQUIRED_PREFIXES)
+
+
+# 判断模型是否接受温度等采样参数。
+def supports_sampling_params(model_name: str) -> bool:
+    """Return False for models that 400 when temperature/top_p/etc. are sent."""
+    name = normalize_model_name(model_name)
+    return not any(name.startswith(p) for p in _NO_SAMPLING_PARAMS_PREFIXES)
+
+
+# 判断 Chat 请求是否应使用 max_completion_tokens 参数。
+def uses_max_completion_tokens(model_name: str) -> bool:
+    """Return True for models that require `max_completion_tokens` over `max_tokens`."""
+    name = normalize_model_name(model_name)
+    return any(name.startswith(p) for p in _MAX_COMPLETION_TOKENS_PREFIXES)
+
+
+# 识别需要显式处理推理强度的 OpenAI 推理模型。
+def is_openai_reasoning_model(model_name: str) -> bool:
+    """True for OpenAI reasoning models (GPT-5 family, o-series).
+
+    They reason by default, so `reasoning_effort` must be handled explicitly:
+    on /v1/chat/completions, function tools require reasoning_effort='none'
+    ("Function tools with reasoning_effort are not supported ... in /v1/chat/completions").
+    Structured outputs (json_schema) have no such restriction.
+    """
+    name = normalize_model_name(model_name)
+    return any(name.startswith(p) for p in _MAX_COMPLETION_TOKENS_PREFIXES)
+
+
+# 按模型家族获取启用思考模式所需的额外请求参数。
+def get_thinking_extra_body(model_name: str) -> dict:
+    """Return model-specific extra_body params for thinking mode (synced from agentic-mle)."""
+    name = normalize_model_name(model_name)
+    for key in sorted(_THINKING_EXTRA_BODY, key=len, reverse=True):
+        if name.startswith(key):
+            return dict(_THINKING_EXTRA_BODY[key])
+    return {}
+
+
+# 按最长模型前缀和思考模式选取参数配置。
+def get_profile(model_name: str, use_thinking: bool = True) -> dict:
+    """Return parameter dict for model_name.
+
+    Matches by longest prefix (case-insensitive). Falls back to 'default'.
+    """
+    name = normalize_model_name(model_name)
+    for key in sorted(_PROFILES, key=len, reverse=True):
+        if key == "default":
+            continue
+        if name.startswith(key):
+            mode = "thinking" if use_thinking else "non_thinking"
+            return dict(_PROFILES[key][mode])
+    mode = "thinking" if use_thinking else "non_thinking"
+    return dict(_PROFILES["default"][mode])

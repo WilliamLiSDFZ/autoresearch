@@ -1,0 +1,133 @@
+# Edit the pair name, PVC subPaths and exact GPU model together in BOTH Jobs.
+# Stage the files/directories first; see docs/jigsaw_comparison.md.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: autoresearch-jubias-pair-001-analogy
+  namespace: ecepxie
+  labels:
+    app: autoresearch-jigsaw
+    experiment-pair: jubias-pair-001
+    experiment-arm: analogy
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 21600  # 6 hours from Job start, including setup/waiting.
+  template:
+    metadata:
+      labels:
+        app: autoresearch-jigsaw
+        experiment-pair: jubias-pair-001
+        experiment-arm: analogy
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 1
+      automountServiceAccountToken: false
+      hostPID: false
+      shareProcessNamespace: false
+      nodeSelector:
+        nvidia.com/gpu.product: NVIDIA-A40
+      containers:
+        - name: researcher
+          image: pytorch/pytorch:2.7.1-cuda12.6-cudnn9-runtime
+          imagePullPolicy: IfNotPresent
+          workingDir: /workspace/autoresearch
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              apt-get update
+              apt-get install -y git curl ca-certificates gcc
+              python -m pip install uv==0.12.16
+              uv sync --locked --python 3.10
+              if [ ! -x "$CLAUDE_BIN" ]; then
+                printf 'Claude Code is not executable at %s; check the PVC mount and CLAUDE_BIN.\n' "$CLAUDE_BIN" >&2
+                exit 1
+              fi
+              ln -s "$CLAUDE_BIN" /usr/local/bin/claude
+              claude --version
+              touch /tmp/autoresearch-ready
+              printf 'Setup complete. Enter this Pod and run claude manually.\n'
+              exec sleep infinity
+          env:
+            - name: EXPERIMENT_ARM
+              value: analogy
+            - name: RUN_TAG
+              value: jubias-pair-001-analogy
+            # Assumes the existing native install uses the dev Pod's HOME.
+            # Keep the original mount path so absolute symlinks still resolve.
+            - name: CLAUDE_BIN
+              value: /workspace/home/.local/bin/claude
+            - name: AUTORESEARCH_REPO_DIR
+              value: /workspace/autoresearch
+            - name: AUTORESEARCH_JIGSAW_DIR
+              value: /data/jigsaw-prepared
+            - name: AUTORESEARCH_TASK_FILE
+              value: /data/task/description.md
+            - name: AUTORESEARCH_RESOURCES
+              value: '1x NVIDIA-A40; CPU=8; RAM=48Gi'
+            # KB path and model endpoint are configured here. Credentials are
+            # entered manually inside this Pod before launching Claude.
+            - name: ANALOGY_CORPUS_DIR
+              value: /data/paper-corpus
+            - name: ANALOGY_MODEL
+              value: gpt-5.6-sol
+            - name: ANALOGY_BASE_URL
+              value: http://cliproxy:8317/v1
+            - name: UV_CACHE_DIR
+              value: /root/.cache/uv
+            - name: UV_PYTHON_INSTALL_DIR
+              value: /root/.local/share/uv/python
+            - name: UV_LINK_MODE
+              value: copy
+            - name: PYTHONUNBUFFERED
+              value: '1'
+            - name: DISABLE_AUTOUPDATER
+              value: '1'
+          resources:
+            requests:
+              cpu: '8'
+              memory: 48Gi
+              nvidia.com/gpu: 1
+            limits:
+              cpu: '8'
+              memory: 48Gi
+              nvidia.com/gpu: 1
+          readinessProbe:
+            exec:
+              command: [test, -f, /tmp/autoresearch-ready]
+            periodSeconds: 5
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace/autoresearch
+              subPath: autoresearch-pairs/jubias-pair-001/analogy/repo
+            - name: workspace
+              mountPath: /root
+              subPath: autoresearch-pairs/jubias-pair-001/analogy/home
+            - name: workspace
+              mountPath: /data/jigsaw-prepared
+              subPath: autoresearch/results/jigsaw-data
+              readOnly: true
+            - name: workspace
+              mountPath: /data/task/description.md
+              subPath: data/mlebench/jigsaw-unintended-bias-in-toxicity-classification/prepared/public/description.md
+              readOnly: true
+            - name: workspace
+              mountPath: /workspace/home/.local
+              subPath: home/.local
+              readOnly: true
+            - name: workspace
+              mountPath: /data/paper-corpus
+              subPath: Agentic_Knowledge_Base/output/paper_corpus
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: yuze-li-vol
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
