@@ -287,11 +287,12 @@ def request_response(client: OpenAI, *, model: str, input_items: list[dict] | st
     attempts = min(int(max_attempts), 3)
     for attempt in range(1, attempts + 1):
         try:
+            # SDK 1.66.3 的 object 路径保留原始 JSON，避免 Python 3.10 泛型类型解析失败。
             if stream:
-                response = _read_stream(client.post("/responses", cast_to=dict[str, Any], body=payload,
-                                                     stream=True, stream_cls=Stream[dict[str, Any]]))
+                response = _read_stream(client.post("/responses", cast_to=object, body=payload,
+                                                     stream=True, stream_cls=Stream[object]))
             else:
-                response = client.post("/responses", cast_to=dict[str, Any], body=payload)
+                response = client.post("/responses", cast_to=object, body=payload)
             response = _validate_response(response, model, reasoning_effort)
             logger.info("Responses completed: %s", response_info(
                 response, requested_model=model, reasoning_effort=reasoning_effort))

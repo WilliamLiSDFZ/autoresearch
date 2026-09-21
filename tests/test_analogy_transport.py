@@ -77,6 +77,53 @@ class ResponsesTransportTests(unittest.TestCase):
         factory.assert_called_once_with(api_key="secret", base_url=config.base_url,
                                         timeout=42, max_retries=0)
 
+    def test_real_sdk_preserves_raw_json_and_sse_responses(self):
+        # Exercise the locked SDK parser; mocking client.post hides cast_to bugs.
+        response = completed(
+            output=[
+                {"type": "reasoning", "encrypted_content": "opaque-state",
+                 "unknown_future_field": {"values": [None, True, 1, "1"]}},
+                {"type": "function_call", "call_id": "call_search",
+                 "name": "search_papers", "arguments": '{"query":"ranking"}'},
+            ],
+            future_metadata={"preserve": ["unknown", {"nested": True}]},
+        )
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                requests = []
+                responses = []
+
+                def handler(request):
+                    requests.append(request)
+                    if stream:
+                        event = {"type": "response.completed", "response": response}
+                        reply = httpx.Response(200, headers={"content-type": "text/event-stream"},
+                                               content="event: response.completed\ndata: "
+                                               + json.dumps(event) + "\n\ndata: [DONE]\n\n")
+                    else:
+                        reply = httpx.Response(200, json=response)
+                    responses.append(reply)
+                    return reply
+
+                with openai.OpenAI(api_key="offline-test-key", base_url="https://example.invalid/v1",
+                                   max_retries=0, http_client=httpx.Client(
+                                       transport=httpx.MockTransport(handler))) as client:
+                    result = self.request(client, stream=stream)
+                self.assertEqual(result, response)
+                self.assertEqual(len(requests), 1)
+                self.assertEqual(requests[0].url.path, "/v1/responses")
+                self.assertEqual(json.loads(requests[0].content).get("stream", False), stream)
+                self.assertTrue(responses[0].is_closed)
+
+    def test_real_sdk_raw_json_still_requires_an_object(self):
+        transport = httpx.MockTransport(lambda request: httpx.Response(200, json=["not an object"]))
+        with openai.OpenAI(api_key="offline-test-key", base_url="https://example.invalid/v1",
+                           max_retries=0, http_client=httpx.Client(transport=transport)) as client:
+            with self.assertRaises(ResponsesError) as caught:
+                self.request(client)
+        self.assertEqual(caught.exception.category, "protocol")
+        self.assertEqual(caught.exception.attempts, 1)
+
     def test_complete_replay_preserves_opaque_reasoning_and_multiple_tools(self):
         output = [
             {"type": "reasoning", "id": "rs_1", "encrypted_content": "opaque-state",

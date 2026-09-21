@@ -204,3 +204,16 @@ Pod 到期后回到 dev Pod，从以下 PVC 目录读取结果（将 `<pod-uid>`
 ```bash
 kubectl --context nautilus -n ecepxie delete job autoresearch-jubias-pair-001-baseline autoresearch-jubias-pair-001-analogy
 ```
+
+## 5. 已冻结实验的客户端修复
+
+Python 3.10 + `openai==1.66.3` 下，Responses 的 `cast_to=dict[str, Any]` 会在 SDK 解析响应时触发 `TypeError: issubclass() arg 1 must be a class`。修复为两处 `cast_to=object`，流式同时使用 `Stream[object]`；保留完整原始 JSON，由现有适配层校验响应，无须升级依赖。错误发生在请求已发送后的解析阶段，失败调用仍可能产生模型用量。`preflight` 只检查本地协议，不能验证这条真实响应路径。
+
+下一轮正式配对应从包含修复的同一提交启动两组。若用户明确批准当前尚未开始训练的运行做一次维护接续：
+
+1. 只修补本轮 worktree 的 `autoresearch_analogy/responses.py`。保留旧 `protocol.json`、失败 draft 目录与日志，不修改主仓库、依赖或评估器。
+2. 在本轮目录新增维护记录，保存原因、UTC 时间、补丁及源码修改前后哈希；在 `run.json` 中记录这次例外，保留原起始 SHA。
+3. 用相同任务、数据、语料、模型、资源和缓存参数重新 preflight，锁文件改为新的 `protocol-maintenance-001.json`，预检日志也使用新文件名。核对新旧锁只有 `code_sha256["autoresearch_analogy/responses.py"]` 不同；若还有其他差异则停止核查。
+4. 在 `run.json` 记录新锁路径，此后每次重建 `ANALOGY_ARGS` 都引用它。使用下一个未占用的调用目录，例如 `draft-0003`，重新执行 draft；成功后才开始训练。
+
+不要覆盖、删除或手工改写旧锁，也不要绕过锁检查。不重复 Setup、不覆盖结果、不重置六小时时限；本轮结果注明维护及其耗时，不能当作全程使用同一冻结协议的正式配对。
