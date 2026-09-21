@@ -27,11 +27,13 @@ backoffLimit: 0
 
 ## 1. 准备目录与配置
 
-默认 namespace `ecepxie`、PVC `yuze-li-vol`、单张 GPU、8 CPU、32Gi 内存。两份 Job 使用相同的 `nodeAffinity` 型号列表，允许 L4、RTX 3090/4090、TITAN RTX、A10、RTX A5000/A6000、V100 SXM2 32GB、A40、L40/L40S、Quadro RTX 8000 和 A100 的 40GB/80GB PCIe/SXM 型号，均为至少 24GB 显存的型号。列表中的任一种均可调度，不要求同时具备这些卡。修改硬件时，两份 YAML 的资源、允许列表和 `AUTORESEARCH_RESOURCES` 一起改。
+默认 namespace `ecepxie`、PVC `yuze-li-vol`、单张 NVIDIA GPU、8 CPU、32Gi 内存。两份 Job 请求 `nvidia.com/gpu: 1`，使用 `nvidia.com/gpu.compute.major > 6` 保留计算能力 ≥7.0 的卡，不要求具体型号或最低显存。当前共享环境固定为 Torch 2.9.1+cu128，支持范围从 Volta 开始；1080 Ti、TITAN Xp 等 Pascal 卡不在范围内。[PyTorch 2.9.1 架构检查源码](https://github.com/pytorch/pytorch/blob/v2.9.1/torch/cuda/__init__.py)
+
+该规则可纳入 V100 16GB、T4、RTX 2080 Ti 及更新架构的卡。集群查询中还有一台 `NVIDIA-L40S` 缺少 compute 标签，因此增加了“compute 标签不存在且型号为 L40S”的后备规则；不会把未知型号或明确标为 6.x 的卡放进来。两条规则都保留故障节点排除。调度仍受资源、taint 和权限限制；部分特殊 GPU 使用独立资源名称，`nvidia.com/gpu: 1` 不能覆盖所有 GPU 资源池。[NRP GPU 资源说明](https://nrp.ai/documentation/userdocs/running/gpu-pods/)
 
 两份 Job 暂时排除 `nautilus-ext-gpu01.fullerton.edu`，该节点在 2026-09-20 连续出现 GPU admission 和 CSI 驱动故障。确认节点修复后再由你同步调整两份配置。
 
-放宽列表后，两组可能分到不同 GPU，不能再视为严格相同硬件的对照。开始前用 `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` 记录实际型号和显存；严格比较时应配对相同型号的运行。`AUTORESEARCH_RESOURCES` 描述的是允许范围，不是实际分配型号。
+两组可能分到不同 GPU，不能视为严格相同硬件的对照。开始前用 `nvidia-smi --query-gpu=name,memory.total --format=csv,noheader` 记录实际型号和显存，并按分到的卡调整模型、batch size 和精度；严格比较时应配对相同型号的运行。`AUTORESEARCH_RESOURCES` 描述的是调度范围，不是实际分配型号。架构标签只是初筛，实际设备、驱动和固定 PyTorch 的组合还必须通过启动时的 CUDA 运算检查；失败时退出，禁止改用 CPU 继续这组 GPU 实验。
 
 先由你把当前代码和文档提交到 Jigsaw 任务分支，并同步到 PVC 的 `/workspace/autoresearch`，让主仓库停在本轮起始 commit。worktree 只包含该 commit 的已提交文件，不包含未提交修改或未跟踪文件；起始 `train.py` 应是共同的上游模板，不是已优化的 baseline。保留已有 prepared 数据，无需复制结果或 `.venv`。
 
@@ -102,7 +104,7 @@ kubectl --context nautilus -n ecepxie get pods -l experiment-pair=jubias-pair-00
 kubectl --context nautilus -n ecepxie logs -f job/autoresearch-jubias-pair-001-baseline
 ```
 
-Job 检查主仓库路径，执行 `apt-get update` 并安装 `git curl ca-certificates gcc`，确认主仓库干净并记录 HEAD，然后 `source "$AUTORESEARCH_VENV/bin/activate"`，检查 Python 路径、基础依赖、Torch 版本及 CUDA 可用性，最后检查已有 Claude 可执行文件。看到 `Setup complete` 或 Pod `Ready` 后进入；此时 worktree 尚未创建。缺少环境或检查失败会明确报错退出，不会转为重新安装。`apt-get` 的系统工具下载仍保留。
+Job 检查主仓库路径，执行 `apt-get update` 并安装 `git curl ca-certificates gcc`，确认主仓库干净并记录 HEAD，然后 `source "$AUTORESEARCH_VENV/bin/activate"`，检查 Python 路径、基础依赖及 Torch 2.9.1/cu128。随后打印实际 GPU、计算能力、显存和编译架构，执行小型 FP32 CUDA 矩阵乘法、反向传播和 `torch.cuda.synchronize()`，检查结果与梯度。只有这些真实运算及 Claude 可执行文件检查均通过，才显示 `Setup complete` 和 Pod `Ready`；此时 worktree 尚未创建。缺少环境或检查失败会明确报错退出，不会转为重新安装或 CPU 运行。`apt-get` 的系统工具下载仍保留。
 
 如果集群里已经创建了旧版 Job，修改本地 YAML 不会改变现有 Pod 的挂载和启动流程。当前这些非 suspended Job 应重建以使用新的模板；如果尚未启动实验，可以删除对应旧 Job 后重新 apply。已开始过实验则按新一对运行准备新目录，避免复用旧产物。[Job 调度字段更新规则](https://kubernetes.io/docs/concepts/workloads/controllers/job/#mutable-scheduling-directives)
 
