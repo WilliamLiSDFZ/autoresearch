@@ -62,6 +62,10 @@ spec:
           args:
             - |
               set -euo pipefail
+              if [ -z "${ANALOGY_API_KEY:-}" ]; then
+                printf 'Missing ANALOGY_API_KEY; check Secret mlevolve-llm-proxy / LLM_API_KEY.\n' >&2
+                exit 1
+              fi
               if [ ! -f "$AUTORESEARCH_SOURCE_DIR/pyproject.toml" ] || [ ! -d "$AUTORESEARCH_SOURCE_DIR/.git" ]; then
                 printf 'Expected the main Git checkout at %s; check the PVC subPath.\n' "$AUTORESEARCH_SOURCE_DIR" >&2
                 exit 1
@@ -192,8 +196,13 @@ spec:
               value: /data/task/description.md
             - name: AUTORESEARCH_RESOURCES
               value: '1x NVIDIA GPU (compute capability >=7.0; VRAM varies); CPU=8; RAM=32Gi'
-            # KB path and model endpoint are configured here. Credentials are
-            # entered manually inside this Pod before launching Claude.
+            # Reuse the same proxy credential as the MLEvolve Jigsaw Jobs.
+            - name: ANALOGY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mlevolve-llm-proxy
+                  key: LLM_API_KEY
+            # KB path and model endpoint are configured here.
             - name: ANALOGY_CORPUS_DIR
               value: /data/paper-corpus
             - name: ANALOGY_MODEL

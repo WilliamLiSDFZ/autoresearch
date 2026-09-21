@@ -137,12 +137,19 @@ printf 'Run: %s\nWorktree: %s\n' "$RUN_TAG" "$AUTORESEARCH_REPO_DIR"
 
 Claude 从这里读取本组 program 后创建 worktree。后续每次 shell 调用都必须显式进入 `$AUTORESEARCH_REPO_DIR`，编辑工具使用该目录下的绝对路径；一次 shell 的 `cd` 不会改变 Claude 的启动目录或其他工具的默认目录。所有 Python 命令显式使用 `"$AUTORESEARCH_VENV/bin/python"`，不依赖后续 shell 的 PATH，也不再调用 `uv run`。这些要求已写入两份 program。
 
-只有 analogy Pod 需要额外设置检索 API key；它与 Claude 登录不同，不写入 YAML、prompt 或 Git：
+analogy Job 自动把现有 `ecepxie/mlevolve-llm-proxy` Secret 的 `LLM_API_KEY` 注入为 `ANALOGY_API_KEY`，与之前 MLEvolve Jigsaw 实验使用同一份凭据。YAML 仅保存 Secret 引用，启动时只检查变量非空；不打印 key，也不把它写入 prompt、Git 或实验产物。baseline 不注入该检索凭据。它与 Claude 登录不同，新建 analogy Pod 无须手动输入。[Kubernetes Secret 环境变量](https://kubernetes.io/docs/tasks/inject-data-application/distribute-credentials-secure/#define-container-environment-variables-using-secret-data)
+
+**已经启动、缺少 key 的旧 Pod** 不会因修改 YAML 自动获得环境变量。如果希望保留当前 Pod 和已创建的 worktree，可在本机终端执行下面的命令：凭据从既有 Secret 经标准输入直接传入 analogy Pod，只保存在当前 Pod 的权限为 `0600` 的临时文件中，不在终端回显。若文件已存在，命令拒绝覆盖。
 
 ```bash
-read -r -s -p 'Analogy API key: ' ANALOGY_API_KEY
-export ANALOGY_API_KEY
+set -o pipefail
+kubectl --context nautilus -n ecepxie get secret mlevolve-llm-proxy \
+  -o jsonpath='{.data.LLM_API_KEY}' |
+kubectl --context nautilus -n ecepxie exec -i job/autoresearch-jubias-pair-001-analogy -- \
+  bash -c 'set -euo pipefail; set -C; umask 077; base64 --decode > /tmp/autoresearch-analogy-api-key; test -s /tmp/autoresearch-analogy-api-key'
 ```
+
+然后告知当前 Claude 会话：每次 analogy CLI 调用都在**同一次 shell 调用**中先执行 `export ANALOGY_API_KEY="$(cat /tmp/autoresearch-analogy-api-key)"`，不要输出变量、启用 shell tracing 或读取凭据到对话中。只重试缺凭据而失败的 preflight/draft，保留本轮 worktree、结果和原截止时间，不重复 Setup。单独一次 `! export` 无法修改已运行 Claude 的环境，也不会自动传给其后续 shell 调用。这是旧 Pod 的临时接续方法；后续新 Pod 直接使用 Secret 注入。
 
 两组使用相同主模型、权限和思考设置，启动全新会话，不恢复旧实验：
 
