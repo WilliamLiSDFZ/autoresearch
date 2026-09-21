@@ -66,6 +66,12 @@ spec:
                 printf 'Expected the main Git checkout at %s; check the PVC subPath.\n' "$AUTORESEARCH_SOURCE_DIR" >&2
                 exit 1
               fi
+              for name in manifest.json train.csv validation.csv test.csv split.npz; do
+                if [ ! -r "$AUTORESEARCH_JIGSAW_DIR/$name" ]; then
+                  printf 'Missing prepared file: %s/%s; point AUTORESEARCH_JIGSAW_DIR at the directory containing manifest.json.\n' "$AUTORESEARCH_JIGSAW_DIR" "$name" >&2
+                  exit 1
+                fi
+              done
               apt-get update
               apt-get install -y git curl ca-certificates gcc
               if [ -n "$(git --no-optional-locks -C "$AUTORESEARCH_SOURCE_DIR" status --porcelain)" ]; then
@@ -85,6 +91,34 @@ spec:
               "$AUTORESEARCH_VENV/bin/python" - <<'PY'
               import os
               import sys
+              from importlib.metadata import PackageNotFoundError, version
+
+              # Both arms reuse the complete training + analogy environment.
+              required = (
+                  "kernels", "matplotlib", "numpy", "pandas", "pyarrow", "requests",
+                  "rustbpe", "tiktoken", "torch", "rank-bm25", "nltk", "openai",
+                  "httpx", "jsonschema", "pymupdf", "pymupdf4llm", "pymupdf-layout",
+                  "tabulate",
+              )
+              if sys.version_info < (3, 11):
+                  required += ("onnxruntime",)
+              versions, missing = {}, []
+              for name in required:
+                  try:
+                      versions[name] = version(name)
+                  except PackageNotFoundError:
+                      missing.append(name)
+              if missing:
+                  raise SystemExit("Shared venv missing dependencies: " + ", ".join(missing)
+                                   + ". Run uv sync --locked --group analogy --python 3.10 once in the dev Pod before starting Jobs.")
+              print("Installed dependencies:", versions, flush=True)
+              # Import API/search libraries only; PDF layout initialization stays in its worker.
+              import openai
+              import httpx
+              import jsonschema
+              import rank_bm25
+              import nltk
+              import tiktoken
               import numpy
               import pandas
               import torch
@@ -129,8 +163,13 @@ spec:
           env:
             - name: EXPERIMENT_ARM
               value: analogy
+            # Kubernetes expands these in order; a recreated Pod gets a fresh run.
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
             - name: RUN_TAG
-              value: jubias-pair-001-analogy
+              value: jubias-pair-001-analogy-$(POD_UID)
             # Assumes the existing native install uses the dev Pod's HOME.
             # Keep the original mount path so absolute symlinks still resolve.
             - name: CLAUDE_BIN
@@ -139,7 +178,7 @@ spec:
               value: /workspace/autoresearch
             # Created by the agent with git worktree add; never checkout the main tree.
             - name: AUTORESEARCH_REPO_DIR
-              value: /workspace/autoresearch/worktrees/jubias-pair-001-analogy
+              value: /workspace/autoresearch/worktrees/$(RUN_TAG)
             # Reuse the dev Pod's locked environment; never install into it here.
             - name: AUTORESEARCH_VENV
               value: /workspace/autoresearch/.venv
@@ -148,7 +187,7 @@ spec:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
             - name: AUTORESEARCH_JIGSAW_DIR
-              value: /data/jigsaw-prepared
+              value: /data/jigsaw-prepared/seed-42
             - name: AUTORESEARCH_TASK_FILE
               value: /data/task/description.md
             - name: AUTORESEARCH_RESOURCES

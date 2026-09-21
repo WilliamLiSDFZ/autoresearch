@@ -51,14 +51,14 @@ for ARM in baseline analogy; do
 done
 ```
 
-**run 分支和 worktree 都由之后启动的 agent 创建**，无需提前建空目录。分支格式为 `run/YYYYMMDD_HHMMSS-jigsaw-unintended-bias-in-toxicity-classification-baseline` 或 `...-analogy`，开始时间使用 UTC。两组的 `AUTORESEARCH_REPO_DIR` 分别为：
+**run 分支和 worktree 都由之后启动的 agent 创建**，无需提前建空目录。分支格式为 `run/YYYYMMDD_HHMMSS-jigsaw-unintended-bias-in-toxicity-classification-baseline` 或 `...-analogy`，开始时间使用 UTC。Job 通过 Downward API 读取当前 Pod UID，生成 `RUN_TAG` 和 `AUTORESEARCH_REPO_DIR`；每次重建 Pod 都会自动换目录，即使沿用同一个 Job 名也不会与旧实验冲突：[Pod UID](https://kubernetes.io/docs/concepts/workloads/pods/downward-api/)、[环境变量展开顺序](https://kubernetes.io/docs/tasks/inject-data-application/define-interdependent-environment-variables/)。
 
 ```text
-/workspace/autoresearch/worktrees/jubias-pair-001-baseline
-/workspace/autoresearch/worktrees/jubias-pair-001-analogy
+/workspace/autoresearch/worktrees/jubias-pair-001-baseline-<baseline-pod-uid>
+/workspace/autoresearch/worktrees/jubias-pair-001-analogy-<analogy-pod-uid>
 ```
 
-两份 Job 各自把主仓库 HEAD 记入 `/tmp/autoresearch-start-commit`，agent 据此创建 worktree，并检查主仓库仍干净且 HEAD 未变。两个 Job 启动前至本轮结束，保持主仓库不变；启动 Claude 前核对两个 Pod 记录的 SHA 相同。已有的分支或 worktree 不会被覆盖，请为新一对实验使用新名称。
+两份 Job 各自把主仓库 HEAD 记入 `/tmp/autoresearch-start-commit`，agent 据此创建 worktree，并检查主仓库仍干净且 HEAD 未变。两个 Job 启动前至本轮结束，保持主仓库不变；启动 Claude 前核对两个 Pod 记录的 SHA 相同。同一个 Pod 只启动一轮实验；重复执行初始化会报错停止，不复用或覆盖已有目录。创建 worktree 失败后不得进入旧目录继续操作，结果目录和 TSV 表头也只能创建一次。旧 worktree 和可能残留的空分支保留，由你之后处理。
 
 核对 YAML 中的 PVC 路径。`subPath` 相对 PVC 根目录，不带 `/workspace/`：
 
@@ -84,14 +84,24 @@ Claude 路径按原 dev Pod 的 `HOME=/workspace/home` 和原生安装布局配�
 cd /workspace/autoresearch
 test -f .venv/bin/activate
 readlink -f .venv/bin/python
-.venv/bin/python -c 'import sys, numpy, pandas, torch; print(sys.prefix, sys.version, torch.__version__)'
+.venv/bin/python -c 'import sys, numpy, pandas, torch, openai, rank_bm25, nltk, jsonschema; print(sys.prefix, sys.version, torch.__version__, openai.__version__)'
 ```
 
-只有环境缺失或依赖已变化时，才在**没有实验运行期间**于 dev Pod 一次性执行 `UV_PROJECT_ENVIRONMENT=/workspace/autoresearch/.venv uv sync --locked --python 3.10`；需要完整训练和 analogy 依赖，不能只装 `--only-group analogy`。若解释器引用临时 `/root` 路径，应先在 dev Pod 使用上述持久化 Python 目录重新准备环境。不要移动已创建的 venv；Job 不会自动修复或下载缺失依赖。两组运行期间，也不要从仍可写 PVC 的 dev Pod 更新共享环境。
+只有环境缺失或依赖已变化时，才在**没有实验使用共享环境期间**于 dev Pod 一次性执行以下命令。先同步当前项目和 `uv.lock`，再安装完整训练和 analogy 依赖；不能只装 `--only-group analogy`：
 
-数据提前准备一次，实验时只读；KB 目录需有 `records.jsonl` 和 `manifest.json`。实际路径不同就改 YAML。analogy Job 中的 `ANALOGY_CORPUS_DIR` 配置 KB 挂载位置；`ANALOGY_MODEL` / `ANALOGY_BASE_URL` 暂沿用 MLEvolve 的 `gpt-5.6-sol` / `http://cliproxy:8317/v1`，按实际接口修改。
+```bash
+cd /workspace/autoresearch || exit 1
+UV_PROJECT_ENVIRONMENT=/workspace/autoresearch/.venv \
+UV_PYTHON_INSTALL_DIR=/workspace/.local/share/uv/python \
+UV_LINK_MODE=copy \
+uv sync --locked --python 3.10 --group analogy
+```
 
-下一对实验请同时换 Job 名、pair label、`RUN_TAG`、`AUTORESEARCH_REPO_DIR` 及本组 home 的 `subPath`；主仓库、共享 venv 和 Python 的 `subPath` 保持不变，因此不会随新实验重新安装依赖。实验期间不要从 dev Pod 修改主仓库、共享环境、固定数据、语料或 Claude 安装。
+`openai` 已在 analogy 依赖组中；出现 `ModuleNotFoundError` 通常表示现有环境缺少该组，需要上述完整同步，不是让实验 agent 临时安装单个包。若解释器引用临时 `/root` 路径，应先在 dev Pod 使用上述持久化 Python 目录重新准备环境。不要移动已创建的 venv；Job 不会自动修复或下载缺失依赖。两组运行期间，也不要从仍可写 PVC 的 dev Pod 更新共享环境。
+
+数据提前准备一次，实验时只读。当前数据集位于 PVC 的 `autoresearch/results/jigsaw-data/seed-42`，因此 `AUTORESEARCH_JIGSAW_DIR=/data/jigsaw-prepared/seed-42`；挂载根目录仍为 `/data/jigsaw-prepared`。变量必须直接指向包含 `manifest.json`、三个 CSV 和 `split.npz` 的目录，不能指向它的父目录。在 dev Pod 可执行 `.venv/bin/python prepare.py verify --prepared-dir /workspace/autoresearch/results/jigsaw-data/seed-42` 验证已有数据，无须重做 prepare。KB 目录需有 `records.jsonl` 和 `manifest.json`。实际路径不同就改 YAML。analogy Job 中的 `ANALOGY_CORPUS_DIR` 配置 KB 挂载位置；`ANALOGY_MODEL` / `ANALOGY_BASE_URL` 暂沿用 MLEvolve 的 `gpt-5.6-sol` / `http://cliproxy:8317/v1`，按实际接口修改。
+
+同一对配置重复实验时，结束旧 Job 后重建即可；保留 `RUN_TAG` 的 `$(POD_UID)` 和 worktree 路径的 `$(RUN_TAG)`，无需手动换运行目录。如果并行启动另一对实验，再同步修改 Job 名、pair label、`RUN_TAG` 的 pair 前缀及本组 home 的 `subPath`。主仓库、共享 venv 和 Python 的 `subPath` 保持不变，不会随新实验重新安装依赖。实验期间不要从 dev Pod 修改主仓库、共享环境、固定数据、语料或 Claude 安装。
 
 ## 2. 创建 Job，等待启动检查完成
 
@@ -104,9 +114,9 @@ kubectl --context nautilus -n ecepxie get pods -l experiment-pair=jubias-pair-00
 kubectl --context nautilus -n ecepxie logs -f job/autoresearch-jubias-pair-001-baseline
 ```
 
-Job 检查主仓库路径，执行 `apt-get update` 并安装 `git curl ca-certificates gcc`，确认主仓库干净并记录 HEAD，然后 `source "$AUTORESEARCH_VENV/bin/activate"`，检查 Python 路径、基础依赖及 Torch 2.9.1/cu128。随后打印实际 GPU、计算能力、显存和编译架构，执行小型 FP32 CUDA 矩阵乘法、反向传播和 `torch.cuda.synchronize()`，检查结果与梯度。只有这些真实运算及 Claude 可执行文件检查均通过，才显示 `Setup complete` 和 Pod `Ready`；此时 worktree 尚未创建。缺少环境或检查失败会明确报错退出，不会转为重新安装或 CPU 运行。`apt-get` 的系统工具下载仍保留。
+Job 先检查主仓库和 prepared 文件路径，执行 `apt-get update` 并安装 `git curl ca-certificates gcc`，确认主仓库干净并记录 HEAD，然后 `source "$AUTORESEARCH_VENV/bin/activate"`。两组均检查所有直接训练和 analogy 依赖是否已安装、记录版本，并检查 Python 路径及 Torch 2.9.1/cu128；缺失依赖会一次列出，analogy 还检查 API/检索库能否导入。全文解析器的实际运行和带凭据的 preflight 仍由 analogy agent 在新 worktree 中完成。随后打印实际 GPU、计算能力、显存和编译架构，执行小型 FP32 CUDA 矩阵乘法、反向传播和 `torch.cuda.synchronize()`，检查结果与梯度。只有这些真实运算及 Claude 可执行文件检查均通过，才显示 `Setup complete` 和 Pod `Ready`；此时 worktree 尚未创建。缺少环境或检查失败会明确报错退出，不会转为重新安装或 CPU 运行。`apt-get` 的系统工具下载仍保留。
 
-如果集群里已经创建了旧版 Job，修改本地 YAML 不会改变现有 Pod 的挂载和启动流程。当前这些非 suspended Job 应重建以使用新的模板；如果尚未启动实验，可以删除对应旧 Job 后重新 apply。已开始过实验则按新一对运行准备新目录，避免复用旧产物。[Job 调度字段更新规则](https://kubernetes.io/docs/concepts/workloads/controllers/job/#mutable-scheduling-directives)
+如果集群里已经创建了旧版 Job，修改本地 YAML 不会改变现有 Pod 的挂载和启动流程。当前这些非 suspended Job 应在旧运行结束后重建以使用新模板；新 Pod UID 会自动生成新运行目录，旧产物保留。[Job 调度字段更新规则](https://kubernetes.io/docs/concepts/workloads/controllers/job/#mutable-scheduling-directives)
 
 ```bash
 kubectl --context nautilus -n ecepxie exec -it job/autoresearch-jubias-pair-001-baseline -- bash
@@ -121,6 +131,7 @@ kubectl --context nautilus -n ecepxie exec -it job/autoresearch-jubias-pair-001-
 ```bash
 source "$AUTORESEARCH_VENV/bin/activate"
 cat /tmp/autoresearch-start-commit
+printf 'Run: %s\nWorktree: %s\n' "$RUN_TAG" "$AUTORESEARCH_REPO_DIR"
 "$AUTORESEARCH_VENV/bin/python" -c 'import torch; assert torch.cuda.is_available(); print(torch.__version__, torch.cuda.get_device_name(0))'
 ```
 
@@ -168,11 +179,11 @@ kubectl --context nautilus -n ecepxie get jobs -l experiment-pair=jubias-pair-00
 
 ## 4. 查看结果
 
-Pod 到期后回到 dev Pod，从以下 PVC 目录读取结果：
+Pod 到期后回到 dev Pod，从以下 PVC 目录读取结果（将 `<pod-uid>` 换成本组实际值，或按启动日志中的 `RUN_TAG` 查找）：
 
 ```text
-/workspace/autoresearch/worktrees/jubias-pair-001-baseline/results/jubias-pair-001-baseline/
-/workspace/autoresearch/worktrees/jubias-pair-001-analogy/results/jubias-pair-001-analogy/
+/workspace/autoresearch/worktrees/jubias-pair-001-baseline-<pod-uid>/results/jubias-pair-001-baseline-<pod-uid>/
+/workspace/autoresearch/worktrees/jubias-pair-001-analogy-<pod-uid>/results/jubias-pair-001-analogy-<pod-uid>/
 ```
 
 本组修改后的 `train.py` 也保留在对应 worktree。agent 不删除 worktree，也不提交代码；后续 Git 操作由你处理。

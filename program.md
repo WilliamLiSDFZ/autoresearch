@@ -6,35 +6,55 @@ This is an experiment to have the LLM do its own research on Jigsaw Unintended B
 
 To set up a new experiment, verify the user's existing setup:
 
-1. **Create this arm's worktree before any edits**: `EXPERIMENT_ARM` must be `baseline`. Claude starts in the shared main repository at `$AUTORESEARCH_SOURCE_DIR` (`/workspace/autoresearch`); `$AUTORESEARCH_REPO_DIR` is this arm's fixed, not-yet-created worktree path. Read `BASE_COMMIT` from the Job's `/tmp/autoresearch-start-commit` and use read-only Git checks to confirm that the main checkout is clean and its HEAD still matches that recorded commit. Both arms must use the same starting SHA and upstream `train.py`. Stop on a mismatch. Create a new branch and worktree using the commands below; if the user specified a new branch name, use that exact name instead of the default `BRANCH_NAME`. Both the branch and worktree path must be new: never force, overwrite, delete, or reuse an existing one. Only the worktree's parent directory may be created before `git worktree add`. A transient Git lock error may be retried a few times; never delete a lock file. This initial `worktree add -b` is the only permitted Git mutation: do not commit, push, reset, stage files, switch branches, prune, or remove worktrees. Do not edit the main checkout or the other arm's worktree. `RUN_TAG` is the separate Job run identifier, not the branch name.
+1. **Create this arm's worktree before any edits**: `EXPERIMENT_ARM` must be `baseline`. Claude starts in the shared main repository at `$AUTORESEARCH_SOURCE_DIR` (`/workspace/autoresearch`). The Job includes `POD_UID` in `RUN_TAG`, so every new Pod gets a fresh `$AUTORESEARCH_REPO_DIR` at `$AUTORESEARCH_SOURCE_DIR/worktrees/$RUN_TAG`; never replace these values with a previous run's paths. Read `BASE_COMMIT` from the Job's `/tmp/autoresearch-start-commit` and use read-only Git checks to confirm that the main checkout is clean and its HEAD still matches that recorded commit. Both arms must use the same starting SHA and upstream `train.py`. Stop on a mismatch. Create a new branch and worktree using the self-contained Bash subprocess below; if the user specified a new branch name, use that exact name instead of the default `BRANCH_NAME`. Both the branch and worktree path must be new: never force, overwrite, delete, or reuse an existing one. Only the worktree's parent directory may be created before `git worktree add`. Proceed to later setup steps only if this entire subprocess exits successfully; on failure, do not enter an existing worktree or initialize any results. Do not rely on the calling tool's `set -e` behavior or remove failure guards. A transient Git lock error may be retried a few times; never delete a lock file. This initial `worktree add -b` is the only permitted Git mutation: do not commit, push, reset, stage files, switch branches, prune, or remove worktrees. Do not edit the main checkout or the other arm's worktree. `RUN_TAG` is the separate Pod run identifier, not the branch name.
 
    ```bash
-   set -eu
-   BASE_COMMIT=$(cat /tmp/autoresearch-start-commit)
-   test -n "$BASE_COMMIT"
-   test "$(git -C "$AUTORESEARCH_SOURCE_DIR" rev-parse HEAD)" = "$BASE_COMMIT"
-   test -z "$(git -C "$AUTORESEARCH_SOURCE_DIR" status --porcelain)"
-   test ! -e "$AUTORESEARCH_REPO_DIR"
-   test ! -L "$AUTORESEARCH_REPO_DIR"
+   bash -euo pipefail -c '
+   : "${POD_UID:?}" "${RUN_TAG:?}" "${AUTORESEARCH_SOURCE_DIR:?}" "${AUTORESEARCH_REPO_DIR:?}"
+   test "$EXPERIMENT_ARM" = "baseline" || exit 1
+   case "$RUN_TAG" in *-"$POD_UID") ;; *) exit 1 ;; esac
+   test "$AUTORESEARCH_REPO_DIR" = "$AUTORESEARCH_SOURCE_DIR/worktrees/$RUN_TAG" || exit 1
+   BASE_COMMIT=$(cat /tmp/autoresearch-start-commit) || exit 1
+   test -n "$BASE_COMMIT" || exit 1
+   SOURCE_HEAD=$(git -C "$AUTORESEARCH_SOURCE_DIR" rev-parse HEAD) || exit 1
+   SOURCE_STATUS=$(git --no-optional-locks -C "$AUTORESEARCH_SOURCE_DIR" status --porcelain) || exit 1
+   test "$SOURCE_HEAD" = "$BASE_COMMIT" || exit 1
+   test -z "$SOURCE_STATUS" || exit 1
+   test ! -e "$AUTORESEARCH_REPO_DIR" || exit 1
+   test ! -L "$AUTORESEARCH_REPO_DIR" || exit 1
    BRANCH_NAME="run/$(date -u +%Y%m%d_%H%M%S)-jigsaw-unintended-bias-in-toxicity-classification-baseline"
-   mkdir -p "$(dirname "$AUTORESEARCH_REPO_DIR")"
-   git -C "$AUTORESEARCH_SOURCE_DIR" worktree add -b "$BRANCH_NAME" "$AUTORESEARCH_REPO_DIR" "$BASE_COMMIT"
-   cd "$AUTORESEARCH_REPO_DIR"
+   mkdir -p "$(dirname "$AUTORESEARCH_REPO_DIR")" || exit 1
+   git -C "$AUTORESEARCH_SOURCE_DIR" worktree add -b "$BRANCH_NAME" "$AUTORESEARCH_REPO_DIR" "$BASE_COMMIT" || exit 1
+   cd "$AUTORESEARCH_REPO_DIR" || exit 1
+   WORKTREE_ROOT=$(git rev-parse --show-toplevel) || exit 1
+   test "$WORKTREE_ROOT" = "$AUTORESEARCH_REPO_DIR" || exit 1
+   '
    ```
 2. **Check the runtime context**: The Job reuses the user's preinstalled environment at `AUTORESEARCH_VENV=/workspace/autoresearch/.venv`, mounted read-only along with its Python interpreter. Before becoming ready, the Job checks actual CUDA forward and backward computation with this environment. The user enters the ready Pod and starts `claude` directly. This environment must already match the task's locked dependencies; if it is missing or unusable, stop and report the problem. Preserve `AUTORESEARCH_VENV` and `VIRTUAL_ENV`; do not install or sync packages, change the shared environment, or create a worktree `.venv`. Invoke `"$AUTORESEARCH_VENV/bin/python"` explicitly for every Python command: activation in the Job's startup shell does not carry into a new `kubectl exec` or shell tool call. The Job has `activeDeadlineSeconds: 21600` (six hours), measured from its `.status.startTime`. Queueing, startup, and waiting for the user to enter the Pod all consume that time. Kubernetes terminates the Pod at the Job deadline. If the user supplies an absolute UTC deadline, use it for planning; otherwise the deadline is unknown to you. Do not invent it, restart a six-hour clock at Claude launch, or add a timer script.
 3. **Read the in-scope files**: Read `$AUTORESEARCH_TASK_FILE`, `$AUTORESEARCH_REPO_DIR/prepare.py`, and `$AUTORESEARCH_REPO_DIR/train.py` for the task, fixed data/evaluation, and editable implementation. All repository files and helpers mentioned below refer to this worktree. The main repository's `AGENTS.md` still applies; do not copy or edit it. `README.md` may be consulted for upstream/Jigsaw context only; the arm-specific scope below takes precedence over its links and instructions. This is the baseline arm: never read or call `analogy_agent.py`, `autoresearch_analogy/`, analogy configuration, the knowledge base, full-text cache, reports, or `program-analogy.md`. Do not use analogy snapshot/complete commands. Sharing the installed dependency lock does not authorize invoking analogy.
-4. **Verify data exists**: Run `cd "$AUTORESEARCH_REPO_DIR" && "$AUTORESEARCH_VENV/bin/python" prepare.py verify --prepared-dir "$AUTORESEARCH_JIGSAW_DIR"`. Both arms use the same read-only prepared split at `/data/jigsaw-prepared`. If it is missing or fails verification, stop and report the problem; do not prepare or repair it. Record `prepared_id` from its verified `manifest.json`.
-5. **Initialize results.tsv**: Set the paths below and create `$RUN_DIR/results.tsv` with just the five-column header shown under Logging results. Record the actual branch, recorded starting Git SHA, main-repository path, worktree path, shared `AUTORESEARCH_VENV` path and resolved Python interpreter path, task-file SHA-256, verified prepared ID, initial seed, fixed resources, Job `RUN_TAG`, and the user-provided UTC deadline if any in `$RUN_DIR/run.json`. Leave an unavailable deadline explicitly unknown. Keep all new experiment artifacts under this run directory. Shared directories may be accessible; isolation relies on following this protocol. Do not read other arms' or previous runs' code, logs, models, reports, or histories.
+4. **Verify data exists**: Run `cd "$AUTORESEARCH_REPO_DIR" && "$AUTORESEARCH_VENV/bin/python" prepare.py verify --prepared-dir "$AUTORESEARCH_JIGSAW_DIR"`. Both arms use the same read-only prepared split at `/data/jigsaw-prepared/seed-42`. If it is missing or fails verification, stop and report the problem; do not prepare or repair it. Record `prepared_id` from its verified `manifest.json`.
+5. **Initialize results.tsv once**: Only after successful worktree creation and data verification, run the subprocess below to create a new `$RUN_DIR` and its five-column TSV header. An existing directory or TSV is an error: stop without truncating, deleting, or reinitializing it. Record the actual branch, recorded starting Git SHA, main-repository path, worktree path, shared `AUTORESEARCH_VENV` path and resolved Python interpreter path, task-file SHA-256, verified prepared ID, initial seed, fixed resources, Job `RUN_TAG`, and the user-provided UTC deadline if any in `$RUN_DIR/run.json`. Leave an unavailable deadline explicitly unknown. Keep all new experiment artifacts under this run directory. Shared directories may be accessible; isolation relies on following this protocol. Do not read other arms' or previous runs' code, logs, models, reports, or histories.
 6. **Go**: Once these checks pass, start drafting. Do not wait for another confirmation.
 
 ```bash
-cd "$AUTORESEARCH_REPO_DIR"
+bash -euo pipefail <<'BASH'
+: "${POD_UID:?}" "${RUN_TAG:?}" "${AUTORESEARCH_SOURCE_DIR:?}" "${AUTORESEARCH_REPO_DIR:?}"
+test "$EXPERIMENT_ARM" = "baseline" || exit 1
+case "$RUN_TAG" in *-"$POD_UID") ;; *) exit 1 ;; esac
+test "$AUTORESEARCH_REPO_DIR" = "$AUTORESEARCH_SOURCE_DIR/worktrees/$RUN_TAG" || exit 1
+test -f "$AUTORESEARCH_REPO_DIR/.git" || exit 1
+cd "$AUTORESEARCH_REPO_DIR" || exit 1
+WORKTREE_ROOT=$(git rev-parse --show-toplevel) || exit 1
+test "$WORKTREE_ROOT" = "$AUTORESEARCH_REPO_DIR" || exit 1
 RUN_DIR="$AUTORESEARCH_REPO_DIR/results/$RUN_TAG"
-mkdir -p "$RUN_DIR"  # Only after this arm's worktree has been created.
-PREPARED_ID=$("$AUTORESEARCH_VENV/bin/python" -c 'import json,os; print(json.load(open(os.path.join(os.environ["AUTORESEARCH_JIGSAW_DIR"], "manifest.json")))["prepared_id"])')
+PREPARED_ID=$("$AUTORESEARCH_VENV/bin/python" -c 'import json,os; print(json.load(open(os.path.join(os.environ["AUTORESEARCH_JIGSAW_DIR"], "manifest.json")))["prepared_id"])') || exit 1
+mkdir -p "$AUTORESEARCH_REPO_DIR/results" || exit 1
+mkdir "$RUN_DIR" || exit 1  # Exclusive creation; never use mkdir -p for RUN_DIR.
+(set -o noclobber; printf 'commit\tval_score\tmemory_gb\tstatus\tdescription\n' > "$RUN_DIR/results.tsv") || exit 1
+BASH
 ```
 
-**Stay in this worktree**: After creation, explicitly start every shell tool call with `cd "$AUTORESEARCH_REPO_DIR"`. One shell's `cd` does not change Claude's launch directory or later tool calls. Use absolute paths under `$AUTORESEARCH_REPO_DIR` with every file-editing tool; never edit a relative `train.py` from Claude's main-repository directory. Recreate these variables and the current trial paths inside each call, and fail on unset variables (`set -u`). Do not assume an earlier shell's assignments survive. Persist the best completed artifact path in `$RUN_DIR/best.json` and reload it before using `BEST_ARTIFACT_DIR`.
+**Stay in this worktree**: After creation, explicitly start every shell tool call with `cd "$AUTORESEARCH_REPO_DIR" || exit 1`. One shell's `cd` does not change Claude's launch directory or later tool calls. Use absolute paths under `$AUTORESEARCH_REPO_DIR` with every file-editing tool; never edit a relative `train.py` from Claude's main-repository directory. Recreate these variables and the current trial paths inside each call, and fail on unset variables (`set -u`). Do not assume an earlier shell's assignments survive. Persist the best completed artifact path in `$RUN_DIR/best.json` and reload it before using `BEST_ARTIFACT_DIR`.
 
 ## Experimentation
 
@@ -66,7 +86,7 @@ Never silently fall back to CPU training. If CUDA initialization or a real CUDA 
 **Candidate artifacts**: `train.py` must use `AUTORESEARCH_ARTIFACT_DIR` as its output directory and write `metrics.json` containing the complete dictionary returned by `evaluate_predictions()`, `config.json` describing the actual configuration, and `validation_predictions.npy` containing the same continuous probabilities in validation row order. Keep `run.log` and any checkpoints in that directory. Never edit a source snapshot, completion receipt, or finalized result. Every attempt, including a debug retry, gets a new ID and directory:
 
 ```bash
-cd "$AUTORESEARCH_REPO_DIR"
+cd "$AUTORESEARCH_REPO_DIR" || exit 1
 TRIAL_ID=trial0001  # Increment for every attempt; never reuse a directory.
 ARTIFACT_DIR="$RUN_DIR/trials/$TRIAL_ID"
 export AUTORESEARCH_ARTIFACT_DIR="$ARTIFACT_DIR"
@@ -96,13 +116,13 @@ peak_vram_mb:     45060.2
 Training duration depends on the model and training schedule. You can extract the key metric from the candidate's log file:
 
 ```bash
-cd "$AUTORESEARCH_REPO_DIR"
+cd "$AUTORESEARCH_REPO_DIR" || exit 1
 grep "^val_score:" "$ARTIFACT_DIR/run.log"
 ```
 
 ## Logging results
 
-When an experiment is done, log it to `$RUN_DIR/results.tsv` (tab-separated, NOT comma-separated — commas break in descriptions).
+When an experiment is done, append it to `$RUN_DIR/results.tsv` (tab-separated, NOT comma-separated — commas break in descriptions). Never truncate this file or write its header again.
 
 The TSV has a header row and 5 columns:
 
