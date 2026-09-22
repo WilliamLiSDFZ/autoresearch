@@ -45,7 +45,17 @@ def extend_tools(tools, *, mode):
         "code_refs": {"type": "array", "items": ANCHOR_SCHEMA, "maxItems": 6},
         "runtime_evidence": {"type": "array", "items": {"type": "string"},
                              "description": "Exact dotted paths relative to runtime_context in the packet"},
-        **{name: {"type": "string", "maxLength": 1500} for name in
+        "history_comparison": {"type": "object", "properties": {
+            "related_trial_ids": {"type": "array", "items": {"type": "string"},
+                "description": "Related IDs actually visible in experiment_history, including unfinished attempts."},
+            "difference": {"type": "string", "minLength": 1,
+                "description": "Substantive difference from related attempts, or why none are related."},
+            "retry_reason": {"type": "string", "description":
+                "Why revisiting related attempts is warranted; may be empty only when no trial is related."}},
+            "required": ["related_trial_ids", "difference", "retry_reason"],
+            "additionalProperties": False,
+            "description": "Required for improve when experiment history is visible; optional without history."},
+        **{name: {"type": "string"} for name in
            ("assumptions", "target_fit", "constraints", "validation_plan", "rejection_criterion")},
     })
     mechanism["required"] = list(dict.fromkeys(mechanism["required"] + [
@@ -56,6 +66,36 @@ def extend_tools(tools, *, mode):
 
 def _strings(value):
     return isinstance(value, list) and all(isinstance(x, str) and x.strip() for x in value)
+
+
+def _history_issues(candidate, location, trial_ids, required):
+    at = location + ".history_comparison"
+    if "history_comparison" not in candidate and not required:
+        return []
+    comparison = candidate.get("history_comparison")
+    if not isinstance(comparison, dict):
+        return [_issue("history_comparison_required", at, comparison,
+            "a history comparison object", "Compare this mechanism with the visible experiment history.")]
+    issues = []
+    related = comparison.get("related_trial_ids")
+    if not _strings(related):
+        issues.append(_issue("history_trial_ids_type", at + ".related_trial_ids", related,
+            "an array of nonempty trial IDs", "Use [] when no visible attempt is related."))
+    else:
+        for index, trial_id in enumerate(related):
+            if trial_id not in trial_ids:
+                issues.append(_issue("history_trial_unavailable", f"{at}.related_trial_ids[{index}]", trial_id,
+                    "a trial ID in the visible experiment history", "Copy an ID actually shown in this episode."))
+    difference = comparison.get("difference")
+    if not isinstance(difference, str) or not difference.strip():
+        issues.append(_issue("history_difference_required", at + ".difference", difference,
+            "a nonempty comparison", "Explain the substantive change or why no previous attempt is related."))
+    reason = comparison.get("retry_reason")
+    if not isinstance(reason, str) or (isinstance(related, list) and related and not reason.strip()):
+        issues.append(_issue("history_retry_reason_required", at + ".retry_reason", reason,
+            "a string, nonempty when related trials are listed",
+            "Explain why revisiting these attempts is warranted; distinguish incomplete runs from measured failures."))
+    return issues
 
 
 def _runtime_path(path, data):
@@ -294,6 +334,10 @@ def validate_detailed(report, seen_ids, corpus, max_mechanisms, *, reading, abst
     if raw.get("abstention_reason"):
         clean["abstention_reason"] = raw["abstention_reason"]
     result["report"] = clean
+    history = runtime_context.get("experiment_history", []) if isinstance(runtime_context, dict) else []
+    trial_ids = {record["trial_id"] for record in history
+                 if isinstance(record, dict) and isinstance(record.get("trial_id"), str) and record["trial_id"].strip()
+                 } if isinstance(history, list) else set()
     fields = ("assumptions", "target_fit", "constraints", "validation_plan", "rejection_criterion")
     for index, candidate in enumerate(mechanisms):
         at = f"mechanisms[{index}]"
@@ -302,6 +346,7 @@ def validate_detailed(report, seen_ids, corpus, max_mechanisms, *, reading, abst
             errors.append(_issue("mechanism_type", at, candidate, "a complete mechanism object",
                                  "Use the submit_report mechanism schema."))
         else:
+            errors.extend(_history_issues(candidate, at, trial_ids, mode == "improve" and bool(trial_ids)))
             for field in (*fields, "title", "mechanism", "intervention", *(("limitations",) if reading is not None else ())):
                 if not isinstance(candidate.get(field), str) or not candidate[field].strip():
                     errors.append(_issue("mechanism_field_required", at + "." + field, candidate.get(field),
@@ -354,9 +399,9 @@ def validate_detailed(report, seen_ids, corpus, max_mechanisms, *, reading, abst
             result["dropped_mechanisms"].append({"original_index": index, "issues": errors})
             continue
         item = legacy["mechanisms"][0]
-        for key in (*fields, "limitations"):
+        for key in (*fields, "limitations", "history_comparison"):
             if key in candidate:
-                item[key] = candidate[key]
+                item[key] = copy.deepcopy(candidate[key])
         item.update(implementation_basis=basis, code_refs=copy.deepcopy(refs), runtime_evidence=runtime_refs,
                     mechanism_id=f"m{len(clean['mechanisms']) + 1}")
         clean["bottlenecks"] = legacy["bottlenecks"]
@@ -403,6 +448,13 @@ def render(report, corpus, budget_chars, mode="improve"):
                            f"**Runtime evidence**: {json.dumps(item['runtime_evidence'])}\n"
                            f"**Constraints to preserve**: {item['constraints']}\n"
                            f"**Explicit rejection condition**: {item['rejection_criterion']}")
+            if "history_comparison" in item:
+                comparison = item["history_comparison"]
+                related = ", ".join(comparison["related_trial_ids"]) or "none"
+                replacement += (f"\n**History comparison**: related trials: {related}. "
+                                f"{comparison['difference']}")
+                if comparison["retry_reason"]:
+                    replacement += f" Retry rationale: {comparison['retry_reason']}"
             if "evidence_refs" not in item:
                 replacement += (f"\n**Source assumptions**: {item['assumptions']}\n"
                                 f"**Fit**: {item['target_fit']}\n**Validation**: {item['validation_plan']}")
@@ -411,7 +463,7 @@ def render(report, corpus, budget_chars, mode="improve"):
 
     while clean["mechanisms"]:
         text = one_render()
-        if len(text) <= budget_chars:
+        if budget_chars <= 0 or len(text) <= budget_chars:
             return clean, text
         clean["mechanisms"].pop()  # whole lowest-priority mechanisms only
     return clean, ""

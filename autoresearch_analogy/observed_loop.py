@@ -46,8 +46,8 @@ class ContextBudget:
     deployment setting, not a claimed observation of the proxy's context window.
     """
     def __init__(self, options, output_tokens):
-        self.limit = min(options.max_input_tokens,
-                         options.endpoint_context_tokens - output_tokens - options.input_safety_tokens)
+        endpoint_input = options.endpoint_context_tokens - output_tokens - options.input_safety_tokens
+        self.limit = min(options.max_input_tokens or endpoint_input, endpoint_input)
         if self.limit <= 0:
             raise ValueError("context window leaves no room for input")
         self.reserve = options.final_report_reserve_tokens * (
@@ -263,15 +263,20 @@ def run(packet_md, corpus, llm_cfg, *, max_turns, top_k, max_mechanisms,
                    f"within the unchanged {max_turns}-turn total. After any rejected submission, "
                    "repair the reported fields. At most one targeted evidence read is allowed in "
                    "correction; no further broad search. Submit earlier when evidence is sufficient.\n")
-        system += (f"\nFINAL REPORT SIZE: the rendered Markdown must fit within {report_char_budget} "
-                   "characters total, including shared evidence, headings, citations and all mechanism fields. "
-                   "This is a rendered-character limit, not an input-token or JSON-size limit. "
-                   "Aim to use at most half that character budget for narrative text, leaving room for "
-                   "formatting and repeated evidence. Prefer one or two strongest mechanisms, concise "
-                   "observed facts/hypotheses/unknowns, and one or two short sentences per narrative field. "
-                   "Do not paste source, runtime logs or long paper excerpts into the final submission. "
-                   "Keep all required fields, exact minimal evidence references, validation and rejection "
-                   "conditions; shorten prose or remove whole lower-priority mechanisms if necessary.\n")
+        if report_char_budget:
+            system += (f"\nFINAL REPORT SIZE: the rendered Markdown must fit within {report_char_budget} "
+                       "characters total, including shared evidence, headings, citations and all mechanism fields. "
+                       "This is a rendered-character limit, not an input-token or JSON-size limit. "
+                       "Aim to use at most half that character budget for narrative text, leaving room for "
+                       "formatting and repeated evidence. Prefer one or two strongest mechanisms, concise "
+                       "observed facts/hypotheses/unknowns, and one or two short sentences per narrative field. "
+                       "Do not paste source, runtime logs or long paper excerpts into the final submission. "
+                       "Keep all required fields, exact minimal evidence references, validation and rejection "
+                       "conditions; shorten prose or remove whole lower-priority mechanisms if necessary.\n")
+        else:
+            system += ("\nFINAL REPORT SIZE: there is no local character limit. Keep complete mechanisms, "
+                       "history comparisons and exact evidence; avoid copying long logs or paper excerpts. "
+                       "The model's output-token and conversation-token limits still apply.\n")
     if reading is not None:
         system += FULLTEXT_PROMPT.format(**vars(fulltext))
     messages = [{"role": "system", "content": system}, {"role": "user", "content": packet_md}]
@@ -297,7 +302,9 @@ def run(packet_md, corpus, llm_cfg, *, max_turns, top_k, max_mechanisms,
     for turn in range(1, max_turns + 1):
         estimate = budget.estimate(messages, api_tools)
         if estimate > budget.limit:
-            res.reason = "input context budget exhausted before a legal final submission"
+            res.reason = (f"input context budget exhausted: estimated {estimate} tokens, configured limit "
+                          f"{budget.limit}; history was not silently truncated. Verify the endpoint window "
+                          "and configure endpoint_context_tokens/max_input_tokens before a new run.")
             res.failure_kind = "context_budget"
             break
         finish_only = (turn == max_turns or budget.tool_chars(messages, api_tools) < 2000

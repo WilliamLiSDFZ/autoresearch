@@ -13,6 +13,7 @@ import math
 import re
 from dataclasses import dataclass, fields
 from collections import deque
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,21 +27,22 @@ def _get(obj, key, default=None):
 @dataclass
 class ContextOptions:
     version: int = 2
-    task_head_chars: int = 8000
-    task_tail_chars: int = 3000
-    data_chars: int = 6000
-    plan_chars: int = 12000
-    implementation_chars: int = 6000
-    analysis_chars: int = 5000
-    log_head_chars: int = 2000
-    log_tail_chars: int = 6000
-    attempts_chars: int = 10000
+    # Zero disables local character truncation; the model token window still applies.
+    task_head_chars: int = 0
+    task_tail_chars: int = 0
+    data_chars: int = 0
+    plan_chars: int = 0
+    implementation_chars: int = 0
+    analysis_chars: int = 0
+    log_head_chars: int = 0
+    log_tail_chars: int = 0
+    attempts_chars: int = 0
     trajectory_nodes: int = 10
-    trajectory_plan_chars: int = 600
-    runtime_chars: int = 12000
-    max_packet_chars: int = 80000
-    pretrained_chars: int = 4000
-    max_input_tokens: int = 196608
+    trajectory_plan_chars: int = 0
+    runtime_chars: int = 0
+    max_packet_chars: int = 0
+    pretrained_chars: int = 0
+    max_input_tokens: int = 0
     endpoint_context_tokens: int = 262144
     input_safety_tokens: int = 8192
     final_report_reserve_tokens: int = 8192
@@ -50,8 +52,9 @@ class ContextOptions:
         if self.version not in (1, 2):
             raise ValueError("analogy.context.version must be 1 or 2")
         for f in fields(self):
-            if int(getattr(self, f.name)) < 1:
-                raise ValueError(f"analogy.context.{f.name} must be positive")
+            minimum = 0 if f.name.endswith("_chars") or f.name == "max_input_tokens" else 1
+            if type(getattr(self, f.name)) is not int or getattr(self, f.name) < minimum:
+                raise ValueError(f"analogy.context.{f.name} must be an integer >= {minimum}")
 
 
 # 读取上下文配置，并补齐默认选项。
@@ -78,7 +81,7 @@ _TOKENIZER = re.compile(r"^(?:huggingface/tokenizers:|\s*(?:To disable this warn
 # 按字符上限裁剪文本，按需保留开头和结尾。
 def clip(text, max_chars, tail_chars=0):
     text = str(text or "").strip()
-    if len(text) <= max_chars:
+    if max_chars == 0 or len(text) <= max_chars:
         return text
     if max_chars <= len(_OMITTED):
         return _OMITTED[:max_chars]
@@ -149,7 +152,7 @@ def _task_description(value, options):
     if appended:
         desc = desc[:appended.start()]
     limit = options.task_head_chars + options.task_tail_chars
-    if len(desc) <= limit:
+    if limit == 0 or len(desc) <= limit:
         return desc.strip()
     # A middle Evaluation section would be lost by head+tail alone. Give its
     # complete definition priority within the same fixed description budget.
@@ -172,6 +175,8 @@ def _json(value):
 def _runtime_text(facts, max_chars):
     if not facts:
         return "Runtime facts unavailable; do not infer training or artifact state from a plan.", {}, []
+    if max_chars == 0:
+        return _json(facts), dict(facts), []
     # Preserve identity and state before large optional trajectories/diagnostics.
     priority = ["available", "reason", "candidate", "selected_snapshot", "contract", "execution", "training", "costs",
                 "public_validation", "validation_trajectory", "provenance"]
@@ -246,7 +251,8 @@ def _attach_runtime_catalog(packet, options):
               "Use one path per runtime_evidence array item, relative to runtime_context. "
               "Use .0 for the first displayed array entry; do not join paths with semicolons. "
               "These examples are a subset of visible facts, not proof of causation.\n")
-    room = min(3000, options.max_packet_chars - len(packet.text) - len(prefix))
+    room = (min(3000, options.max_packet_chars - len(packet.text) - len(prefix))
+            if options.max_packet_chars else 3000)
     paths = runtime_evidence_paths(packet.data.get("runtime_context", {}), max_chars=max(0, room))
     if paths:
         packet.text += prefix + "\n".join(paths) + "\n"
@@ -272,14 +278,15 @@ def _assemble(sections, options, data):
             if shown:
                 text += f"\n## {title}\n{shown}\n"
         omitted = [k for k, v in metadata["sections"].items() if v["truncated"]]
-        text += "\nContext budget: " + str(options.max_packet_chars) + " characters. Truncated sections: " + (", ".join(omitted) or "none") + ". Full lengths and sources are saved in the trace.\n"
+        budget = str(options.max_packet_chars) if options.max_packet_chars else "unlimited local"
+        text += "\nContext budget: " + budget + " characters. Truncated sections: " + (", ".join(omitted) or "none") + ". Full lengths and sources are saved in the trace.\n"
         return text
     text = render()
     # Low relevance history and logs go first; metric identity and runtime state
     # survive whenever their protected block fits the configured packet budget.
     priorities = ("trajectory", "attempts", "log", "legacy_summary", "pretrained", "data", "plan", "analysis", "task", "implementation", "runtime", "resources", "current")
     for name in priorities:
-        if len(text) <= options.max_packet_chars:
+        if not options.max_packet_chars or len(text) <= options.max_packet_chars:
             break
         if name not in values:
             continue
@@ -291,7 +298,7 @@ def _assemble(sections, options, data):
         values[name][1] = "" if name == "runtime" else (clip(shown, keep) if keep > len(_OMITTED) else "")
         metadata["sections"][name].update(returned_chars=len(values[name][1]), truncated=True, omission="overall packet budget")
         text = render()
-    if len(text) > options.max_packet_chars:
+    if options.max_packet_chars and len(text) > options.max_packet_chars:
         raise ValueError("max_packet_chars too small for context headings and provenance")
     metadata["returned_chars"] = len(text)
     metadata["runtime_source"] = "persisted candidate metadata and public validation predictions; no private feedback"
@@ -306,7 +313,7 @@ def build_task_packet(*, task_desc, data_preview, resources, pretrained, options
     sections = [
         ("task", "Task and metric definition", _task_description(task_desc, options), options.task_head_chars + options.task_tail_chars, options.task_tail_chars),
         ("data", "Available data", data_preview, options.data_chars, 0),
-        ("resources", "runtime_context.resources — resource observations and budget uncertainty", _json(resources), 6000, 0),
+        ("resources", "runtime_context.resources — resource observations and budget uncertainty", _json(resources), options.runtime_chars, 0),
         ("pretrained", "Offline pretrained model guidance", pretrained, options.pretrained_chars, 0),
     ]
     packet = _assemble(sections, options, data)
@@ -417,7 +424,7 @@ def _history_metadata(path, options):
     return _json(data), {"sha256": digest, "rows_total": count, "rows_selected": len(recent)}
 
 
-def _parent_snapshot(directory, prepared_id, metric_version):
+def _parent_snapshot(directory, prepared_id, metric_version, *, include_log=True):
     directory = Path(directory).expanduser().resolve()
     source, source_hash = _read_text(directory / "source.py")
     record, record_hash = _read_object(directory / "source.json")
@@ -433,7 +440,7 @@ def _parent_snapshot(directory, prepared_id, metric_version):
     if not re.fullmatch(r"[A-Za-z0-9_-]+", record["experiment_id"]):
         raise ValueError("Parent experiment_id must be a safe node ID")
     hashes = {"metrics.json": record.get("metrics_sha256"), "config.json": record.get("config_sha256")}
-    if record.get("log_sha256") is not None:
+    if include_log and record.get("log_sha256") is not None:
         hashes["run.log"] = record["log_sha256"]
     if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
            for value in hashes.values()):
@@ -478,13 +485,16 @@ def _parent_snapshot(directory, prepared_id, metric_version):
 
 # 按阶段组装上下文，并绑定已核验的父实验与只读源码会话。
 def build_packet(stage, task_file, prepared_dir, parent_artifacts=None, history=None,
-                 resources="", options=None, code_options=None, reference_artifacts=None):
+                 resources="", options=None, code_options=None, reference_artifacts=None,
+                 history_run_dir=None, history_as_of=None):
     """Build a standalone episode without reading datasets or executing candidate code.
 
     Returns ``(packet_md, metadata, visible_runtime_context, code_session)``.
     In draft mode code_session is None and parent/history/reference inputs are rejected.
     ``options`` accepts ContextOptions or a config with context/code_tools fields.
     """
+    # Freeze the cutoff before reading any changing run artifacts.
+    history_as_of = history_as_of or datetime.now(timezone.utc).isoformat()
     opts = context_options(options)
     if stage not in {"draft", "improve"}:
         raise ValueError("stage must be draft or improve")
@@ -495,7 +505,8 @@ def build_packet(stage, task_file, prepared_dir, parent_artifacts=None, history=
     common = {"stage": stage, "prepared_id": prepared["prepared_id"],
               "task_sha256": task_hash, "prepared_manifest_sha256": manifest_hash}
     if stage == "draft":
-        if parent_artifacts is not None or history is not None or reference_artifacts:
+        if (parent_artifacts is not None or history is not None or reference_artifacts
+                or history_run_dir is not None):
             raise ValueError("Draft must not consume parent results or optimization history")
         packet = build_task_packet(task_desc=task, data_preview=_json(prepared),
             resources=declared_resources, pretrained="", options=opts)
@@ -505,11 +516,40 @@ def build_packet(stage, task_file, prepared_dir, parent_artifacts=None, history=
         raise ValueError("Improve requires completed parent artifacts")
     node, record, runtime, log, cleanup = _parent_snapshot(
         parent_artifacts, prepared["prepared_id"], prepared["metric_version"])
+    if history_run_dir is not None and (history is not None or reference_artifacts):
+        raise ValueError("history_run_dir replaces legacy history and explicit reference_artifacts; "
+                         "references must come from the same cutoff snapshot")
     references = reference_artifacts or []
     if not isinstance(references, (list, tuple)) or len(references) > opts.trajectory_nodes:
         raise ValueError("reference_artifacts must be an explicit list within trajectory_nodes")
     nodes, reference_metadata, seen = [node], [], {node["id"]}
     runtime_references = []
+    history_snapshot = None
+    if history_run_dir is not None:
+        from .history import build_history
+        expected_parent = Path(history_run_dir).expanduser().resolve() / "trials" / node["id"]
+        if Path(parent_artifacts).expanduser().resolve() != expected_parent:
+            raise ValueError("Parent artifacts must be in history_run_dir/trials")
+        history_snapshot, historical_nodes = build_history(
+            history_run_dir, parent_id=node["id"], run_id=record["run_id"],
+            prepared_id=prepared["prepared_id"], metric_version=prepared["metric_version"],
+            as_of=history_as_of)
+        node["parent_id"] = next(entry["parent_trial_id"] for entry in history_snapshot["experiments"]
+                                 if entry["trial_id"] == node["id"])
+        nodes.extend(historical_nodes)
+        seen.update(n["id"] for n in historical_nodes)
+        # Only bound execution facts are runtime evidence. Adoption/rejection prose
+        # stays in a separate declaration section, never in the runtime catalog.
+        runtime["experiment_history"] = []
+        for entry in history_snapshot["experiments"]:
+            fact = {key: entry.get(key) for key in (
+                "trial_id", "execution_status", "validation", "source_sha256")}
+            if entry.get("validation") == "verified":
+                fact.update({key: entry.get(key) for key in (
+                    "score", "config")})
+                fact["metrics"] = {key: value for key, value in entry.get("metrics", {}).items()
+                                   if key in {"score", "overall_auc", "power_means", "metric_version"}}
+            runtime["experiment_history"].append(fact)
     for directory in references:
         ref_node, ref_record, ref_runtime, _, _ = _parent_snapshot(
             directory, prepared["prepared_id"], prepared["metric_version"])
@@ -529,25 +569,44 @@ def build_packet(stage, task_file, prepared_dir, parent_artifacts=None, history=
         runtime["reference_candidates"] = runtime_references
     session = CodeReadingSession(nodes, node["id"], run_id=record["run_id"],
                                  options=code_options if code_options is not None else options)
-    implementation = session.index_summary(max_chars=opts.implementation_chars, register_anchors=False)
+    implementation = session.index_summary(max_chars=opts.implementation_chars or 10**12, register_anchors=False)
     if not session.sources[node["id"]]["available"]:
         raise ValueError("Parent source is unavailable")
     history_text, history_info = _history_metadata(history, opts)
+    if history_snapshot is not None:
+        declarations = [{key: value for key, value in entry.items()
+                         if key not in {"metrics", "config", "score"}}
+                        for entry in history_snapshot["experiments"]]
+        history_text = _json({"as_of_utc": history_snapshot["as_of_utc"],
+            "note": "Intent, adoption, selection and reasons are declarations, not implementation or causal evidence. "
+                    "Pending means not finalized, not proof that a process is running. "
+                    "Finalized facts are in runtime_context.experiment_history; read source to verify changes.",
+            "experiments": declarations, "warnings": history_snapshot.get("warnings", [])})
+        history_info = {"source": "same-run artifact snapshot", "as_of_utc": history_snapshot["as_of_utc"],
+                        "rows_total": len(declarations), "rows_selected": len(declarations)}
+        # CLI persists this exact snapshot; consumers never re-read live history mid-call.
+        session.history_snapshot = history_snapshot
     runtime_text, visible_runtime, omitted = _runtime_text(runtime, opts.runtime_chars)
+    if history_snapshot is not None and visible_runtime.get("experiment_history") != runtime["experiment_history"]:
+        raise ValueError("History exceeds context.runtime_chars; set it to 0 to retain all history")
     current = {**runtime["candidate"], "source_sha256": record["sha256"],
                "source_tool_allowed_node_ids": [item["id"] for item in nodes],
                "scope": "completed parent experiment; never the future child"}
     sections = [
         ("task", "Task and metric definition", _task_description(task, opts), opts.task_head_chars + opts.task_tail_chars, opts.task_tail_chars),
         ("data", "Prepared public-data metadata", _json(prepared), opts.data_chars, 0),
-        ("current", "Current candidate — finalized identity", _json(current), 4000, 0),
+        ("current", "Current candidate — finalized identity", _json(current), 0, 0),
         ("implementation", "Current implementation — immutable source index", _json(implementation), opts.implementation_chars, 0),
         ("runtime", "runtime_context — finalized public-validation facts", runtime_text, opts.runtime_chars, 0),
-        ("resources", "runtime_context.resources — caller declarations", _json(declared_resources), 5000, 0),
+        ("resources", "runtime_context.resources — caller declarations", _json(declared_resources), opts.runtime_chars, 0),
         ("log", "Captured parent output (reported text, not source evidence)", log, opts.log_head_chars + opts.log_tail_chars, opts.log_tail_chars),
         ("attempts", "Explicitly supplied attempt history — declarations only", history_text, opts.attempts_chars, 0),
     ]
     packet = _assemble(sections, opts, {"runtime_context": visible_runtime})
+    if history_snapshot is not None and any(packet.metadata["sections"][name]["truncated"]
+                                             for name in ("attempts", "runtime")):
+        raise ValueError("History exceeds configured character limits; set context.attempts_chars "
+                         "and context.max_packet_chars to 0 to retain all history")
     if packet.metadata["sections"]["runtime"]["truncated"]:
         packet.data["runtime_context"] = {}
     if not packet.metadata["sections"]["resources"]["truncated"]:

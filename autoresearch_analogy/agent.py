@@ -16,7 +16,23 @@ evaluated; its state is in the user message. Your job is NOT to propose the next
 It is to find, in a corpus of {n_papers} recent ML papers, mechanisms that solved the SAME PROBLEM \
 STRUCTURE in OTHER subfields, and to map them back onto this pipeline as concrete interventions.
 
-Work in four steps.
+Before diagnosing bottlenecks, review any visible experiment history for this run. Distinguish \
+proposals and adoption declarations from changes confirmed by reading the corresponding source. \
+A rejected proposal, a crashed or incomplete run, and a completed run with worse metrics are \
+different outcomes: lack of a completed result is not evidence that a mechanism failed. Use only \
+verified completed results in runtime_context.experiment_history as historical metric evidence, \
+citing exact experiment_history.<index> paths; declared changes, adoption and selection notes are \
+not runtime or code facts. Read the available historical source before claiming what was implemented.
+Compare the current bottleneck against related attempts, including unfinished plans. Do not \
+present an unchanged earlier suggestion as a new mechanism. A retry can be justified by a concrete \
+change in dose, sampling, implementation or another relevant condition; earlier failure does not \
+automatically rule out such a retry. With visible history, each mechanism must include \
+history_comparison: related_trial_ids from that history, difference describing the substantive \
+change, and retry_reason explaining why another attempt is warranted. If there is no related \
+attempt, use an empty related_trial_ids array, explain that in difference, and leave retry_reason \
+empty. If no materially different or justified intervention remains, abstain.
+
+Then work in four steps.
 
 STEP 1 - DIAGNOSE (write this out, before any tool call). From the search state, identify at most \
 3 local bottlenecks of the CURRENT methodology. A bottleneck is a property of the pipeline, not of \
@@ -208,7 +224,7 @@ Include assumptions (source method's requirements), target_fit (met and unknown 
 limitations (mismatches or missing evidence), and validation_plan (one concrete change, validation
 observations and a rejection/rollback criterion). Separate source findings from your adaptation.
 Revise or abandon the analogy if reading reveals a mismatch. An empty mechanisms list is valid.
-Keep the report concise; the injected report still has the same character budget.
+Keep the report concise and finish within the model's input and output token budgets.
 """
 
 # 在基础检索工具中加入全文打开、分段读取及证据引用的字段定义。
@@ -223,7 +239,7 @@ def reading_tools() -> List[Dict[str, Any]]:
                 "chunk_id": {"type": "string", "description": "Required for full_text; from read_paper"},
                 "quote": {"type": "string", "minLength": 12, "maxLength": 400}},
             "required": ["paper_id", "source", "quote"]}},
-        **{k: {"type": "string", "maxLength": 1000} for k in
+        **{k: {"type": "string"} for k in
            ("assumptions", "target_fit", "limitations", "validation_plan")}})
     mechanism["required"] += ["evidence_refs", "assumptions", "target_fit", "limitations", "validation_plan"]
     tools[2:2] = [
@@ -345,7 +361,7 @@ def validate_report(report: Any, seen_ids: set, corpus: PaperCorpus,
             if not kept or any(not isinstance(m.get(k), str) or not m[k].strip() for k in fields):
                 problems.append(f"'{title}': needs read evidence and assumptions/target_fit/limitations/validation_plan")
                 continue
-            evidence_fields = {k: m[k].strip()[:1000] for k in fields}
+            evidence_fields = {k: m[k].strip() for k in fields}
             evidence_fields["evidence_refs"] = refs
             evidence_fields["evidence_level"] = (
                 "full_text" if all(r["source"] == "full_text" for r in refs) else
@@ -420,9 +436,9 @@ def render_report(report: dict, corpus: PaperCorpus, budget_chars: int, mode: st
     head = "\n".join(lines) + "\n"
     out, used = [], len(head)
     for b in blocks:  # whole mechanisms only; never cut one mid-block
-        if any("evidence_refs" in m for m in report["mechanisms"]) and used + len(b) + 3 > budget_chars:
+        if budget_chars > 0 and any("evidence_refs" in m for m in report["mechanisms"]) and used + len(b) + 3 > budget_chars:
             continue
-        if out and used + len(b) + 2 > budget_chars:
+        if budget_chars > 0 and out and used + len(b) + 2 > budget_chars:
             break
         out.append(b)
         used += len(b) + 2

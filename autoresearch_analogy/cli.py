@@ -68,13 +68,14 @@ class AgentOptions:
     max_turns: int = 14
     top_k: int = 10
     max_mechanisms: int = 3
-    report_char_budget: int = 12000
+    report_char_budget: int = 0
     max_output_tokens: int = 16384
 
     def __post_init__(self):
         for field in dataclasses.fields(self):
-            if type(getattr(self, field.name)) is not int or getattr(self, field.name) <= 0:
-                raise ValueError(f"agent.{field.name} must be a positive integer")
+            minimum = 0 if field.name == "report_char_budget" else 1
+            if type(getattr(self, field.name)) is not int or getattr(self, field.name) < minimum:
+                raise ValueError(f"agent.{field.name} must be an integer >= {minimum}")
         if self.top_k > 20:
             raise ValueError("agent.top_k must not exceed 20")
 
@@ -112,9 +113,10 @@ def settings(args, *, require_key=True):
                 if type(value) is not bool:
                     raise ValueError(f"{field.name} must be boolean")
             elif isinstance(field.default, (int, float)) and not isinstance(field.default, bool):
+                zero_allowed = obj is context and (field.name.endswith("_chars") or field.name == "max_input_tokens")
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(
-                        value) or value <= 0:
-                    raise ValueError(f"{field.name} must be finite and positive")
+                        value) or (value < 0 if zero_allowed else value <= 0):
+                    raise ValueError(f"{field.name} must be finite and {'nonnegative' if zero_allowed else 'positive'}")
                 if isinstance(field.default, int) and not isinstance(value, int):
                     raise ValueError(f"{field.name} must be an integer")
     if args.cache_dir:
@@ -192,6 +194,7 @@ def run_command(args):
     from .context import build_packet
     from .corpus import load_corpus
     from .observed_loop import run
+    history_as_of = timestamp()
     opts = settings(args)
     agent, context, code, fulltext, llm = opts
     contract = frozen_contract(args, opts)
@@ -202,7 +205,8 @@ def run_command(args):
         args.stage, args.task_file, args.prepared_dir,
         parent_artifacts=args.parent_artifacts, history=args.history,
         resources=args.resources, options=context, code_options=code,
-        reference_artifacts=args.reference_artifacts)
+        reference_artifacts=args.reference_artifacts,
+        history_run_dir=args.history_run_dir, history_as_of=history_as_of)
     if args.command == "preflight":
         if args.lock_file:
             separate_from_inputs(args.lock_file, args)
@@ -215,10 +219,14 @@ def run_command(args):
         return 0
     output = separate_from_inputs(args.output_dir, args)
     output.mkdir(parents=True, exist_ok=False)
+    snapshot = getattr(code_session, "history_snapshot", None)
+    if snapshot is not None:
+        write_json(output / "history.json", snapshot, exclusive=True)
+        metadata["history"]["snapshot_sha256"] = sha256(output / "history.json")
     write_json(output / "context.json", {"stage": args.stage, "packet": packet,
                                          "metadata": metadata, "runtime_context": runtime})
     manifest = {"protocol": PROTOCOL, "stage": args.stage, "call_id": output.name,
-                "started_at": timestamp(), "status": "running", "frozen": contract,
+                "started_at": history_as_of, "status": "running", "frozen": contract,
                 "input_metadata": metadata}
     write_json(output / "manifest.json", manifest)
     try:
@@ -262,6 +270,58 @@ def run_command(args):
                         reason=_safe_error(exc, llm.api_key))
         write_json(output / "manifest.json", manifest)
         raise
+
+
+# 在采纳前只读复核历史，保留旧调用快照并明确是否需要刷新检索。
+def check_history_command(args):
+    from .context import _parent_snapshot
+    from .history import build_history, compare_snapshots
+
+    as_of = timestamp()
+    root = args.history_run_dir.expanduser().resolve()
+    report_dir = args.report_dir.expanduser().resolve()
+    if report_dir.parent != root / "analogy":
+        raise ValueError("Report must belong to history_run_dir/analogy")
+    previous = read_json(report_dir / "history.json")
+    manifest = read_json(report_dir / "manifest.json")
+    expected = manifest.get("input_metadata", {}).get("history", {}).get("snapshot_sha256")
+    if expected != sha256(report_dir / "history.json"):
+        raise ValueError("Report history snapshot hash mismatch or missing binding")
+    if manifest.get("status") not in {"ok", "abstained"}:
+        raise ValueError("Only a successful or abstained report can be reviewed for adoption")
+    node, record, _, _, _ = _parent_snapshot(
+        args.parent_artifacts, previous["prepared_id"], previous["metric_version"], include_log=False)
+    if args.parent_artifacts.expanduser().resolve() != root / "trials" / node["id"]:
+        raise ValueError("Current parent must belong to history_run_dir/trials")
+    current, _ = build_history(root, parent_id=node["id"], run_id=record["run_id"],
+        prepared_id=previous["prepared_id"], metric_version=previous["metric_version"], as_of=as_of)
+    changes = compare_snapshots(previous, current)
+    changed_ids = set(changes["added_trial_ids"] + changes["changed_trial_ids"])
+    before = {item["trial_id"]: item for item in previous["experiments"]}
+    after = {item["trial_id"]: item for item in current["experiments"]}
+    parent_source_changed = (before.get(node["id"], {}).get("source_sha256") != record["sha256"])
+    refresh = (changes["parent_changed"] or parent_source_changed
+               or current.get("best_trial_id") not in {None, node["id"]})
+    review = bool(changed_ids or changes["removed_trial_ids"] or changes["best_changed"])
+    status, code = ("refresh_required", 4) if refresh else (("review_required", 3) if review else ("unchanged", 0))
+    result = {"status": status, "checked_at_utc": as_of, "run_id": previous["run_id"],
+        "report_id": report_dir.name, "history_snapshot_sha256": expected,
+        "previous_as_of_utc": previous["as_of_utc"], "current_as_of_utc": current["as_of_utc"],
+        "parent_source_changed": parent_source_changed, **changes,
+        "changed_experiments": [after[key] for key in sorted(changed_ids)],
+        "current_source_hashes": current["provenance"]["source_hashes"],
+        "instruction": ("Run a fresh improve call on the current best before editing." if refresh else
+            "Review new results against the selected mechanism. Refresh if relevant; otherwise record the "
+            "review and continuation reason in adoption.json." if review else
+            "History is unchanged; record this check in adoption.json before editing.")}
+    if args.output:
+        output = args.output.expanduser().resolve()
+        if not output.is_relative_to(root) or output.is_relative_to(root / "trials"):
+            raise ValueError("History checks must be saved within the run, outside trial artifacts")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        write_json(output, result, exclusive=True)
+    print(json.dumps(result, ensure_ascii=False))
+    return code
 
 
 # 在训练前保存源码快照，并登记实验身份与固定数据版本。
@@ -342,6 +402,8 @@ def parser():
         cmd.add_argument("--reference-artifacts", type=Path, action="append", default=[],
                          help="Completed same-run historical candidate; repeat to allow code comparisons")
         cmd.add_argument("--history", type=Path)
+        cmd.add_argument("--history-run-dir", type=Path,
+                         help="Freeze same-run trials, results and adoption history before improve")
         cmd.add_argument("--resources", default="Unknown; no experiment wall-clock deadline is configured.")
         cmd.add_argument("--config", type=Path, help="Non-secret JSON settings, frozen for a run")
         cmd.add_argument("--model")
@@ -367,6 +429,13 @@ def parser():
     complete.add_argument("--prepared-dir", type=Path, required=True)
     complete.add_argument("--log-file", type=Path)
     complete.set_defaults(handler=complete_command)
+    check = commands.add_parser("check-history", help="Review new results before adopting a prefetched improve report")
+    check.add_argument("--history-run-dir", type=Path, required=True)
+    check.add_argument("--report-dir", type=Path, required=True)
+    check.add_argument("--parent-artifacts", type=Path, required=True,
+                       help="Current best finalized candidate, not necessarily the report's original parent")
+    check.add_argument("--output", type=Path, help="New same-run JSON check receipt; never overwritten")
+    check.set_defaults(handler=check_history_command)
     return p
 
 

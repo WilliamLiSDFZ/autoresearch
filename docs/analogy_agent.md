@@ -46,12 +46,14 @@ Responses 的 `--reasoning-effort` 默认 `high`。Chat 路径沿用 MLEvolve �
 
 ```json
 {
-  "agent": {"max_turns": 14, "top_k": 10, "max_mechanisms": 3, "report_char_budget": 12000},
+  "agent": {"max_turns": 14, "top_k": 10, "max_mechanisms": 3, "report_char_budget": 0},
   "fulltext": {"enabled": true, "max_papers": 3, "max_read_calls": 12, "read_chars": 8000, "total_chars": 40000}
 }
 ```
 
-不设置时使用移植后的默认值。根据实际 endpoint 能力设置 context 上限；默认上限来自 MLEvolve 的配置，不是脚本对服务端能力的测量。
+不设置时使用默认值。上下文各 `*_chars`、`max_packet_chars` 和报告 `report_char_budget` 默认都是 `0`，表示不按本地字符数截断；自然语言报告字段也不再限制为 1,000/1,500 字符。论文逐次读取和源码工具仍保留分页与工作量预算，精确引文的长度校验仍保留。
+
+`context.max_input_tokens=0` 表示直接使用 `endpoint_context_tokens` 扣除输出和安全预留后的输入空间。默认 `endpoint_context_tokens=262144` 是部署配置，不是对服务端的测量。累计会话超限时明确保存 `context_budget` 失败，不会静默裁掉历史；若实际模型支持更大窗口，在**新 run 的 preflight 前**通过 `--config` 设置正确值。模型真实上下文和输出 token 上限不能通过取消字符限制来消除。
 
 ## draft：初始方案之前
 
@@ -114,6 +116,28 @@ uv run /workspace/autoresearch/analogy_agent.py run \
 
 后续 improve 选择当前 keep 的父实验。可加 `--history /workspace/autoresearch/results.tsv` 提供本 run 的五列历史表；TSV 本身没有 run ID，调用者需要确保没有混入另一组历史。可重复传入 `--reference-artifacts /absolute/path/to/completed-experiment`，允许代码工具读取/比较同 run、同 prepared ID 的已完成历史候选。不会自动扫描其他分支或目录。
 
+### 配对实验的自动历史与预取复核
+
+遵循 `program-analogy.md` 的配对实验必须在每次 improve 加上 `--history-run-dir "$RUN_DIR"`；父实验必须位于该目录的 `trials/<trial_id>`。这一模式替代手动 `--history` / `--reference-artifacts`，不能混用；draft 拒绝这些历史输入。上面的 `exp000` 是旧独立 CLI 示例，不是配对实验目录格式。
+
+脚本在读取前固定时间点，收集本 run 的 source receipts、adoption 声明、已绑定 metrics/config、results.tsv 和明确引用的同 run 报告。所有已完成源码自动加入只读工具 allow-list。未完成候选只提供身份和可见设计意图，不读取其 metrics/config/log；`pending` 不是进程存活证明。执行状态、建议采纳状态及 keep/discard/crash 决策分别展示。得分差与明确声明的父实验比较，缺少父关系时不猜测，也不把声明的父关系或数值差包装成因果证据。
+
+每次调用保存不可变的 `history.json`，其 hash 写入 manifest。初始上下文保留全部历史声明及核验后的指标/配置；全文源码仍按需读，不额外调用模型总结历史。历史建议比较保存在每条机制的 `history_comparison`：相关 trial ID、本次差异、重试理由。有实质变化的重试允许继续，未完成/报错/未采纳均不能当作方法已被否定。
+
+允许训练时预取下一份报告，但编辑下一候选前必须运行：
+
+```bash
+CHECK_EXIT=0
+"$AUTORESEARCH_VENV/bin/python" analogy_agent.py check-history \
+  --history-run-dir "$RUN_DIR" --report-dir "$REPORT_DIR" \
+  --parent-artifacts "$BEST_ARTIFACT_DIR" \
+  --output "$RUN_DIR/history-check-before-trial0002-001.json" || CHECK_EXIT=$?
+```
+
+检查回执的退出码：`0` 未变化；`3` 有新/变化试验，需要外层 agent 判断与拟采纳机制是否相关；`4` 父实验或最佳候选已变化，必须刷新检索；`2` 输入/完整性错误。回执不可覆盖，每次使用新文件名。相关新结果改变建议前提时重新检索；无关更新可继续，但在 `adoption.json` 中保存回执路径和继续理由。旧报告及历史快照不回填新结果。
+
+在训练启动前保存 adoption，包含 `trial_id`、实际 `parent` ID、`recorded_at_utc`、report、采纳机制或 null、reason 和 intended change。旧文件没有声明时间时仅作为声明，并标注时间未核实；修改时间晚于截点的声明省略。因此用旧下载产物回放时，不能把事后写下的理由视作当时已知信息。
+
 已跑完的旧 baseline 没有上述执行前快照时，脚本不会猜测其代码/指标对应关系。首次验证 improve 可从明确保存快照的新候选开始；旧产物只有在核对确切执行源码和结果后，才适合迁移成同样的记录。现有 baseline 文件不会被脚本修改。
 
 ## 输出、缓存与失败
@@ -122,6 +146,7 @@ uv run /workspace/autoresearch/analogy_agent.py run \
 
 - `report.json` / `report.md`：同一份验证后的报告；机制包含稳定 ID。
 - `context.json`：实际输入与可见的运行事实；`context.json` 不会被后续的上下文预算 sidecar 覆盖。
+- `history.json`：启用自动历史时的调用前快照，含时间点、全部候选、声明与结果来源 hash；不会随训练进展变化。
 - `context_budget.json`：各轮上下文估算及提交预留信息。
 - `trace.jsonl`：模型可见的文字、工具调用、检索结果和返回证据。
 - `fulltext.json`：打开记录、实际交付片段、摘要和来源 hash。
@@ -133,7 +158,7 @@ uv run /workspace/autoresearch/analogy_agent.py run \
 
 默认全文缓存是 `/workspace/autoresearch/results/analogy-cache/paper_fulltext`（由项目所在位置推导），可用 `--cache-dir` 覆盖。`--offline` 仅禁止 PDF 网络下载，模型 API 仍会联网。不同 reader/解析器版本的缓存不会混用；因此不会直接认领 MLEvolve 原缓存为兼容缓存。
 
-将项目、语料与结果放在实际挂载的 PVC 上。`/workspace` 名字本身不意味着持久化。实验时固定入口、整个 `autoresearch_analogy/`、配置及语料；freeze hash 是检测机制，更强约束可用独立只读挂载。当前没有修改 `program.md`，所以自动调用和外层采纳决策记录要等下一步接入。
+将项目、语料与结果放在实际挂载的 PVC 上。`/workspace` 名字本身不意味着持久化。实验时固定入口、整个 `autoresearch_analogy/`、配置及语料；freeze hash 是检测机制，更强约束可用独立只读挂载。历史接入改变了固定代码和默认预算，只用于更新代码后新建的实验；保留旧 run 的原协议锁。
 
 ## 验证与移植来源
 

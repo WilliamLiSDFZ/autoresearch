@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 from autoresearch_analogy import cli
 from autoresearch_analogy.agent import AnalogyResult
-from autoresearch_analogy.context import build_packet
+from autoresearch_analogy.context import ContextOptions, build_packet
+from autoresearch_analogy.observed_loop import ContextBudget
 
 
 FAKE_KEY = "fixture-api-credential-never-persist"
@@ -101,6 +102,103 @@ class AnalogyCliTests(unittest.TestCase):
     def complete(self, directory, *extra):
         return self.call(["complete", "--artifact-dir", directory,
                           "--prepared-dir", self.prepared, *extra])
+
+    def history_candidate(self, name, *, completed=True, score=0.8, parent=None):
+        run_dir = self.root / "run_001"
+        directory = run_dir / "trials" / name
+        code, _, error = self.call(["snapshot", "--source", self.source, "--artifact-dir", directory,
+            "--prepared-dir", self.prepared, "--experiment-id", name, "--run-id", "run_001"])
+        self.assertEqual(code, 0, error)
+        write_json(directory / "adoption.json", {"trial_id": name, "parent": parent,
+            "recorded_at_utc": cli.timestamp(), "status": "adopted",
+            "intended_change": "Change ranking weight", "reason": "DECLARED_REASON_ONLY"})
+        if completed:
+            self.candidate_outputs(directory, score=score)
+            self.assertEqual(self.complete(directory)[0], 0)
+        return directory
+
+    def test_history_snapshot_and_prefetch_adoption_check(self):
+        parent = self.history_candidate("trial0001")
+        pending = self.history_candidate("trial0002", completed=False, parent="trial0001")
+        run_dir = parent.parent.parent
+        output = run_dir / "analogy" / "improve-0001"
+        self.loop.side_effect = None
+        self.loop.return_value = AnalogyResult(delivery_status="abstained", reason="No fitting mechanism")
+        result = self.call(self.common(stage="improve", output=output,
+            extra=["--parent-artifacts", parent, "--history-run-dir", run_dir]))
+        self.assertEqual(result[0], 0, result)
+        old_history = (output / "history.json").read_bytes()
+        history = json.loads(old_history)
+        self.assertEqual(len(history["experiments"]), 2)
+        facts = self.loop.call_args.kwargs["runtime_context"]["experiment_history"]
+        self.assertNotIn("score", facts[1])
+        self.assertNotIn("DECLARED_REASON_ONLY", json.dumps(facts))
+        self.assertNotIn("trial0002", self.loop.call_args.kwargs["code_session"].sources)
+        manifest = json.loads((output / "manifest.json").read_text())
+        self.assertEqual(manifest["input_metadata"]["history"]["snapshot_sha256"], sha(output / "history.json"))
+        args = ["check-history", "--history-run-dir", run_dir, "--report-dir", output,
+                "--parent-artifacts", parent]
+        code, stdout, error = self.call(args)
+        self.assertEqual(code, 0, error)
+        self.assertEqual(json.loads(stdout)["status"], "unchanged")
+        self.candidate_outputs(pending, score=0.79)
+        self.assertEqual(self.complete(pending)[0], 0)
+        receipt = run_dir / "history-check-001.json"
+        code, stdout, error = self.call([*args, "--output", receipt])
+        self.assertEqual(code, 3, error)
+        check = json.loads(stdout)
+        self.assertEqual(check["status"], "review_required")
+        self.assertEqual(check["changed_trial_ids"], ["trial0002"])
+        self.assertAlmostEqual(check["changed_experiments"][0]["score_delta"], -0.01)
+        self.assertEqual((output / "history.json").read_bytes(), old_history)
+        self.assertEqual(self.call([*args, "--output", receipt])[0], 2)
+        # Choosing a different current best invalidates a prefetched report.
+        code, stdout, _ = self.call(args[:-1] + [pending])
+        self.assertEqual(code, 4)
+        self.assertEqual(json.loads(stdout)["status"], "refresh_required")
+        (output / "history.json").write_text("{}")
+        self.assertEqual(self.call(args)[0], 2)
+
+    def test_history_retains_older_trials_and_long_declarations(self):
+        parent = self.history_candidate("trial0001")
+        for index in range(2, 13):
+            self.history_candidate(f"trial{index:04d}", parent="trial0001")
+        text = "Complete historical intent " * 4000
+        adoption = parent / "adoption.json"
+        data = json.loads(adoption.read_text())
+        data["intended_change"] = text
+        write_json(adoption, data)
+        packet, metadata, runtime, session = build_packet("improve", self.task, self.prepared, parent,
+            history_run_dir=parent.parent.parent)
+        self.assertEqual(metadata["history"]["rows_selected"], 12)
+        self.assertEqual(len(runtime["experiment_history"]), 12)
+        self.assertEqual(len(session.sources), 12)
+        self.assertIn(text, packet)
+        self.assertGreater(len(packet), 80000)
+        self.assertFalse(metadata["sections"]["attempts"]["truncated"])
+        _, _, _, session = build_packet("improve", self.task, self.prepared,
+            parent.parent / "trial0012", history_run_dir=parent.parent.parent)
+        self.assertEqual(session.sources["trial0012"]["parent_id"], "trial0001")
+        self.assertNotIn("parent_trial_id", runtime["experiment_history"][1])
+        self.assertNotIn("score_delta", runtime["experiment_history"][1])
+        with self.assertRaisesRegex(ValueError, "cutoff"):
+            build_packet("improve", self.task, self.prepared, parent,
+                history_run_dir=parent.parent.parent, reference_artifacts=[parent.parent / "trial0012"])
+        with self.assertRaisesRegex(ValueError, "set it to 0"):
+            build_packet("improve", self.task, self.prepared, parent,
+                history_run_dir=parent.parent.parent, options=ContextOptions(runtime_chars=300))
+        result = self.call(self.common(extra=["--history-run-dir", parent.parent.parent]))
+        self.assertEqual(result[0], 2)
+        self.assertIn("Draft", result[2])
+
+    def test_zero_character_limits_keep_real_model_token_limit(self):
+        options = ContextOptions()
+        budget = ContextBudget(options, 16384)
+        self.assertEqual(budget.limit, options.endpoint_context_tokens - 16384 - options.input_safety_tokens)
+        self.assertGreater(budget.limit, 196608)
+        with self.assertRaisesRegex(ValueError, "no room"):
+            ContextBudget(ContextOptions(endpoint_context_tokens=1000), 16384)
+        self.assertEqual(cli.AgentOptions().report_char_budget, 0)
 
     def test_snapshot_complete_and_improve_bind_exact_source_and_results(self):
         directory = self.snapshot()
