@@ -1,0 +1,275 @@
+# Edit the pair name, PVC subPaths and resources together in BOTH Jobs.
+# Reuse the dev Pod's existing .venv; the agent creates its run worktree.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: autoresearch-jubias-pair-002-analogy
+  namespace: ecepxie
+  labels:
+    app: autoresearch-jigsaw
+    experiment-pair: jubias-pair-002
+    experiment-arm: analogy
+spec:
+  completions: 1
+  parallelism: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 21600  # 6 hours from Job start, including setup/waiting.
+  template:
+    metadata:
+      labels:
+        app: autoresearch-jigsaw
+        experiment-pair: jubias-pair-002
+        experiment-arm: analogy
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 1
+      automountServiceAccountToken: false
+      hostPID: false
+      shareProcessNamespace: false
+      # Require SM 7.x+ for Torch 2.9.1+cu128; verify CUDA kernels before readiness.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: nvidia.com/gpu.compute.major
+                    operator: Gt
+                    values: ['6']
+                # Temporary: repeated GPU admission and CSI failures on 2026-09-20.
+                matchFields:
+                  - key: metadata.name
+                    operator: NotIn
+                    values:
+                      - nautilus-ext-gpu01.fullerton.edu
+              # Observed L40S node without a compute label; do not admit unknown GPUs.
+              - matchExpressions:
+                  - key: nvidia.com/gpu.compute.major
+                    operator: DoesNotExist
+                  - key: nvidia.com/gpu.product
+                    operator: In
+                    values: [NVIDIA-L40S]
+                matchFields:
+                  - key: metadata.name
+                    operator: NotIn
+                    values:
+                      - nautilus-ext-gpu01.fullerton.edu
+      containers:
+        - name: researcher
+          image: pytorch/pytorch:2.7.1-cuda12.6-cudnn9-runtime
+          imagePullPolicy: IfNotPresent
+          workingDir: /workspace/autoresearch
+          command: [bash, -c]
+          args:
+            - |
+              set -euo pipefail
+              if [ -z "${ANALOGY_API_KEY:-}" ]; then
+                printf 'Missing ANALOGY_API_KEY; check Secret mlevolve-llm-proxy / LLM_API_KEY.\n' >&2
+                exit 1
+              fi
+              if [ ! -f "$AUTORESEARCH_SOURCE_DIR/pyproject.toml" ] || [ ! -d "$AUTORESEARCH_SOURCE_DIR/.git" ]; then
+                printf 'Expected the main Git checkout at %s; check the PVC subPath.\n' "$AUTORESEARCH_SOURCE_DIR" >&2
+                exit 1
+              fi
+              for name in manifest.json train.csv validation.csv test.csv split.npz; do
+                if [ ! -r "$AUTORESEARCH_JIGSAW_DIR/$name" ]; then
+                  printf 'Missing prepared file: %s/%s; point AUTORESEARCH_JIGSAW_DIR at the directory containing manifest.json.\n' "$AUTORESEARCH_JIGSAW_DIR" "$name" >&2
+                  exit 1
+                fi
+              done
+              apt-get update
+              apt-get install -y git curl ca-certificates gcc
+              if [ -n "$(git --no-optional-locks -C "$AUTORESEARCH_SOURCE_DIR" status --porcelain)" ]; then
+                printf 'The shared main checkout must be clean before starting research.\n' >&2
+                exit 1
+              fi
+              git -C "$AUTORESEARCH_SOURCE_DIR" rev-parse HEAD > /tmp/autoresearch-start-commit
+              if [ ! -f "$AUTORESEARCH_VENV/bin/activate" ] || [ ! -x "$AUTORESEARCH_VENV/bin/python" ]; then
+                printf 'Missing or broken shared venv at %s; prepare it once in the dev Pod and check the Python interpreter mount.\n' "$AUTORESEARCH_VENV" >&2
+                exit 1
+              fi
+              source "$AUTORESEARCH_VENV/bin/activate"
+              if [ "$VIRTUAL_ENV" != "$AUTORESEARCH_VENV" ]; then
+                printf 'The shared venv was created at a different path; recreate it at %s in the dev Pod.\n' "$AUTORESEARCH_VENV" >&2
+                exit 1
+              fi
+              "$AUTORESEARCH_VENV/bin/python" - <<'PY'
+              import os
+              import sys
+              from importlib.metadata import PackageNotFoundError, version
+
+              # Both arms reuse the complete training + analogy environment.
+              required = (
+                  "kernels", "matplotlib", "numpy", "pandas", "pyarrow", "requests",
+                  "rustbpe", "tiktoken", "torch", "rank-bm25", "nltk", "openai",
+                  "httpx", "jsonschema", "pymupdf", "pymupdf4llm", "pymupdf-layout",
+                  "tabulate",
+              )
+              if sys.version_info < (3, 11):
+                  required += ("onnxruntime",)
+              versions, missing = {}, []
+              for name in required:
+                  try:
+                      versions[name] = version(name)
+                  except PackageNotFoundError:
+                      missing.append(name)
+              if missing:
+                  raise SystemExit("Shared venv missing dependencies: " + ", ".join(missing)
+                                   + ". Run uv sync --locked --group analogy --python 3.10 once in the dev Pod before starting Jobs.")
+              print("Installed dependencies:", versions, flush=True)
+              # Import API/search libraries only; PDF layout initialization stays in its worker.
+              import openai
+              import httpx
+              import jsonschema
+              import rank_bm25
+              import nltk
+              import tiktoken
+              import numpy
+              import pandas
+              import torch
+
+              assert sys.prefix == os.environ["AUTORESEARCH_VENV"], "Unexpected Python environment"
+              assert torch.__version__.split("+")[0] == "2.9.1", "Shared venv must match uv.lock"
+              assert torch.version.cuda == "12.8", "Shared venv must use the locked cu128 build"
+              assert torch.cuda.is_available(), "CUDA is unavailable; CPU fallback is forbidden"
+              capability = torch.cuda.get_device_capability(0)
+              print("Using shared venv:", sys.prefix, "Python:", sys.version.split()[0],
+                    "Torch:", torch.__version__, "GPU:", torch.cuda.get_device_name(0),
+                    "Capability:", capability, "Compiled architectures:", torch.cuda.get_arch_list(),
+                    "VRAM GiB:", round(torch.cuda.get_device_properties(0).total_memory / 1024**3, 2),
+                    flush=True)
+              assert capability >= (7, 0), "GPU requires compute capability >= 7.0 for this cu128 build"
+              # Device detection alone can pass on GPUs with no compatible CUDA kernels.
+              x = torch.ones((16, 16), device="cuda", dtype=torch.float32, requires_grad=True)
+              loss = (x @ x).square().mean()
+              loss.backward()
+              torch.cuda.synchronize()
+              assert loss.item() == 256.0 and torch.isfinite(x.grad).all().item(), "CUDA smoke test failed"
+              print("CUDA forward/backward check passed", flush=True)
+              PY
+              if [ ! -x "$CLAUDE_BIN" ]; then
+                printf 'Claude Code is not executable at %s; check the PVC mount and CLAUDE_BIN.\n' "$CLAUDE_BIN" >&2
+                exit 1
+              fi
+              ln -s "$CLAUDE_BIN" /usr/local/bin/claude
+              claude --version
+              touch /tmp/autoresearch-ready
+              printf 'Setup complete. Run claude here; the agent must create its worktree at %s.\n' "$AUTORESEARCH_REPO_DIR"
+              # The agent signals the end of the entire research run after saving results.
+              while [ ! -f /tmp/autoresearch-finished ] && [ ! -f /tmp/autoresearch-failed ]; do
+                sleep 2
+              done
+              if [ -f /tmp/autoresearch-failed ]; then
+                printf 'Research stopped with a failure; see the saved run summary.\n' >&2
+                exit 1
+              fi
+              printf 'Research finished; stopping the Pod.\n'
+              exit 0
+          env:
+            - name: EXPERIMENT_ARM
+              value: analogy
+            # Kubernetes expands these in order; a recreated Pod gets a fresh run.
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: RUN_TAG
+              value: jubias-pair-002-analogy-$(POD_UID)
+            # Assumes the existing native install uses the dev Pod's HOME.
+            # Keep the original mount path so absolute symlinks still resolve.
+            - name: CLAUDE_BIN
+              value: /workspace/home/.local/bin/claude
+            - name: AUTORESEARCH_SOURCE_DIR
+              value: /workspace/autoresearch
+            # Created by the agent with git worktree add; never checkout the main tree.
+            - name: AUTORESEARCH_REPO_DIR
+              value: /workspace/autoresearch/worktrees/$(RUN_TAG)
+            # Reuse the dev Pod's locked environment; never install into it here.
+            - name: AUTORESEARCH_VENV
+              value: /workspace/autoresearch/.venv
+            - name: VIRTUAL_ENV
+              value: /workspace/autoresearch/.venv
+            - name: PYTHONDONTWRITEBYTECODE
+              value: '1'
+            - name: AUTORESEARCH_JIGSAW_DIR
+              value: /data/jigsaw-prepared/seed-42
+            - name: AUTORESEARCH_TASK_FILE
+              value: /data/task/description.md
+            - name: AUTORESEARCH_RESOURCES
+              value: '1x NVIDIA GPU (compute capability >=7.0; VRAM varies); CPU=8; RAM=32Gi'
+            # Reuse the same proxy credential as the MLEvolve Jigsaw Jobs.
+            - name: ANALOGY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mlevolve-llm-proxy
+                  key: LLM_API_KEY
+            # KB path and model endpoint are configured here.
+            - name: ANALOGY_CORPUS_DIR
+              value: /data/paper-corpus
+            - name: ANALOGY_MODEL
+              value: gpt-5.6-sol
+            - name: ANALOGY_BASE_URL
+              value: http://cliproxy:8317/v1
+            - name: PYTHONUNBUFFERED
+              value: '1'
+            - name: DISABLE_AUTOUPDATER
+              value: '1'
+          resources:
+            requests:
+              cpu: '8'
+              memory: 32Gi
+              nvidia.com/gpu: 1
+            limits:
+              cpu: '8'
+              memory: 32Gi
+              nvidia.com/gpu: 1
+          readinessProbe:
+            exec:
+              command: [test, -f, /tmp/autoresearch-ready]
+            periodSeconds: 5
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace/autoresearch
+              subPath: autoresearch
+            - name: workspace
+              mountPath: /workspace/autoresearch/.venv
+              subPath: autoresearch/.venv
+              readOnly: true
+            # Keep uv-managed Python symlink targets at the dev Pod's absolute path.
+            - name: workspace
+              mountPath: /workspace/.local/share/uv/python
+              subPath: .local/share/uv/python
+              readOnly: true
+            - name: workspace
+              mountPath: /root
+              subPath: autoresearch-pairs/jubias-pair-002/analogy/home
+            - name: workspace
+              mountPath: /data/jigsaw-prepared
+              subPath: autoresearch/results/jigsaw-data
+              readOnly: true
+            # Protect the same dataset at its path inside the shared main repository.
+            - name: workspace
+              mountPath: /workspace/autoresearch/results/jigsaw-data
+              subPath: autoresearch/results/jigsaw-data
+              readOnly: true
+            - name: workspace
+              mountPath: /data/task/description.md
+              subPath: data/mlebench/jigsaw-unintended-bias-in-toxicity-classification/prepared/public/description.md
+              readOnly: true
+            - name: workspace
+              mountPath: /workspace/home/.local
+              subPath: home/.local
+              readOnly: true
+            - name: workspace
+              mountPath: /data/paper-corpus
+              subPath: Agentic_Knowledge_Base/output/paper_corpus
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: yuze-li-vol
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

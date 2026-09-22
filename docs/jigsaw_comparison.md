@@ -103,6 +103,33 @@ uv sync --locked --python 3.10 --group analogy
 
 同一对配置重复实验时，结束旧 Job 后重建即可；保留 `RUN_TAG` 的 `$(POD_UID)` 和 worktree 路径的 `$(RUN_TAG)`，无需手动换运行目录。如果并行启动另一对实验，再同步修改 Job 名、pair label、`RUN_TAG` 的 pair 前缀及本组 home 的 `subPath`。主仓库、共享 venv 和 Python 的 `subPath` 保持不变，不会随新实验重新安装依赖。实验期间不要从 dev Pod 修改主仓库、共享环境、固定数据、语料或 Claude 安装。
 
+### pair002 / pair003
+
+新增两对使用相同配置的 Job：`k8s/job-jigsaw-pair002-{baseline,analogy}.yaml` 和 `k8s/job-jigsaw-pair003-{baseline,analogy}.yaml`。仅替换 pair 标识，分别使用 `jubias-pair-002`、`jubias-pair-003`；Job 名、labels、`RUN_TAG` 和 `/root` 的 PVC 子目录均独立。六小时上限、GPU 兼容规则、资源和共享环境与 pair001 相同。
+
+先在挂载完整 PVC 的 dev Pod 中准备会话目录：
+
+```bash
+for PAIR in 002 003; do
+  for ARM in baseline analogy; do
+    mkdir -p "/workspace/autoresearch-pairs/jubias-pair-$PAIR/$ARM/home"
+  done
+done
+```
+
+将主仓库同步到本轮共同起点并保持干净，然后在本机仓库根目录手动提交 Job：
+
+```bash
+kubectl --context nautilus -n ecepxie apply \
+  -f k8s/job-jigsaw-pair002-baseline.yaml \
+  -f k8s/job-jigsaw-pair002-analogy.yaml
+kubectl --context nautilus -n ecepxie apply \
+  -f k8s/job-jigsaw-pair003-baseline.yaml \
+  -f k8s/job-jigsaw-pair003-analogy.yaml
+```
+
+后续 exec、日志和结果拉取沿用下文命令，将 `jubias-pair-001` 换成对应 pair 标识。各 Pod 的 `RUN_TAG` 仍包含 Pod UID，agent 会据此创建新的 worktree。
+
 ## 2. 创建 Job，等待启动检查完成
 
 在本项目目录执行：
@@ -198,6 +225,27 @@ Pod 到期后回到 dev Pod，从以下 PVC 目录读取结果（将 `<pod-uid>`
 两组共用中性 `experiment_artifacts.py` 保存训练前源码并绑定完成后的指标、配置、日志；baseline 不调用 analogy 的任何命令。helper 只负责结果绑定，不负责限时。比较 `source.json.execution_status == "completed"` 且 `completed_at_utc` 早于实际 Job 截止时间的候选；未完成或被中断的候选不计分。没有完成候选就报告无有效结果。
 
 保存 Job 的开始/结束状态、两组起始 Git SHA、prepared ID、GPU/环境/主模型配置、`results.tsv`、最佳候选以及 analogy 的检索记录。一次配对适合先确认流程，之后再用预先约定的种子做重复实验。
+
+### 批量拉取到本机
+
+使用 `scripts/fetch-autoresearch-run.py`；本机 Nautilus 目录另有可直接执行的副本 `~/nautilus/fetch-autoresearch-run.py`。只需 Python 3 标准库和已配置的 `kubectl`。脚本通过 dev Pod 读取 PVC，默认保存到 `~/nautilus/autoresearch-result/<RUN_TAG>/`，不要求实验 Pod 仍然存在。
+
+```bash
+python3 ~/nautilus/fetch-autoresearch-run.py --list
+python3 ~/nautilus/fetch-autoresearch-run.py --all jubias-pair-001
+# 不加 --all 时，只拉取名称匹配的最新一轮：
+python3 ~/nautilus/fetch-autoresearch-run.py analogy
+# 首次拉取时加 --full 可同时保存模型权重：
+python3 ~/nautilus/fetch-autoresearch-run.py --full <完整RUN_TAG>
+```
+
+默认包含运行元数据、总结、协议锁与维护记录、每次 trial 的源码/回执/配置/指标/日志/预测，以及完整 analogy 调用记录（包括失败调用）。`_worktree/` 额外保存本轮工作目录里的训练和固定源文件；候选归属以 `trials/*/source.py` 和回执为准。默认省略模型权重，`--full` 才包含；两种模式都省略环境、Git、数据集目录和训练/全文缓存，不触发训练或私有测试集评分。
+
+脚本压缩流式传输，不在 Pod 上创建临时文件；本机先暂存并验证逐文件 SHA-256，再发布结果目录。另检查 completed 回执绑定的源码、指标、配置和日志，错误记入 `_fetch.json` 并返回非零，但保留已下载的诊断材料；这不等于重新计算验证分数或校验预测与分数的关系。一次失败不会中断其他 run 的下载。
+
+已存在的本机目录会跳过，不覆盖或更新旧快照；需要重新拉取或补模型时，通过 `--out-dir` / `OUT_DIR` 指定新的输出目录。可用 `POD`、`NS`、`CONTEXT`、`WORKTREES_DIR` 和 `REMOTE_PYTHON` 覆盖默认 dev Pod、命名空间、上下文、worktree 根目录和远端 Python；默认分别为 `mlevolve-agentic-knowledge-base-dev-cpu`、`ecepxie`、`nautilus`、`/workspace/autoresearch/worktrees` 和 `python`。名称筛选是字面子串，不执行通配符或 shell 表达式。
+
+下载后，在 autoresearch 仓库运行 `uv run --script analyze_runs.py`，自动过滤无有效结果的 run，并将 paired / effect 图及审计表写入 `results/analysis/`。新增实验组、任务或自定义配对方式见 [结果分析说明](run_analysis.md)。
 
 确认结果后可删除 Job，PVC 上的文件会保留：
 
