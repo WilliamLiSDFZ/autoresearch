@@ -187,6 +187,9 @@ class AnalogyLoopTests(unittest.TestCase):
         self.assertEqual(mechanism["evidence_level"], "full_text")
         self.assertEqual(mechanism["evidence_refs"][0]["pdf_sha256"], "a" * 64)
         self.assertEqual(mechanism["evidence_refs"][0]["page"], 1)
+        self.assertTrue(mechanism["evidence_refs"][0]["quote_verified"])
+        self.assertNotIn("warning", mechanism["evidence_refs"][0])
+        self.assertEqual(result.submission_attempts[0]["warnings"], [])
         self.assertEqual(result.fulltext["abstracts_read"], {PAPER_ID: ABSTRACT})
         self.assertEqual(result.fulltext["body_chars"], len(BODY))
         get_paper.assert_called_once()
@@ -237,11 +240,105 @@ class AnalogyLoopTests(unittest.TestCase):
         self.assertEqual(result.delivery_status, "accepted_complete", result.submission_attempts)
         self.assertEqual([a["status"] for a in result.submission_attempts], ["rejected", "accepted_complete"])
         first_codes = {issue["code"] for issue in result.submission_attempts[0]["issues"]}
-        self.assertIn("paper_quote_not_returned", first_codes)
+        self.assertIn("paper_source_not_returned", first_codes)
         feedback = [json.loads(item["output"]) for item in endpoint.requests[4]["input"]
                     if item.get("call_id") == "call_initial_submission" and item.get("type") == "function_call_output"]
         self.assertEqual(feedback[0]["status"], "rejected")
         self.assertTrue(result.submission_attempts[1]["correcting"])
+
+    def test_quote_mismatches_from_read_sources_are_delivered_with_warnings(self):
+        cases = [
+            ("full_text", QUOTE.replace("Group-balanced", "**Group-balanced**")),
+            ("full_text", "Balanced group pairs retain representation of infrequent groups."),
+            ("full_text", "This invented evidence never appeared in the paper."),
+            ("abstract", "Balanced sampling improves ranking robustness across groups."),
+        ]
+        for source, quote in cases:
+            with self.subTest(source=source, quote=quote):
+                proposal = report(evidence=source)
+                # Submitted verification claims must not override checks against returned text.
+                proposal["mechanisms"][0]["evidence_refs"][0].update(quote=quote, quote_verified=True)
+                script = [self.search(), self.abstract(), self.opened(), self.read(),
+                          response(tool("submit_report", proposal))]
+                result, endpoint, _ = self.run_script(script)
+                self.assertEqual(result.delivery_status, "accepted_complete", result.submission_attempts)
+                self.assertEqual(len(endpoint.requests), 5)
+                self.assertEqual(len(result.submission_attempts), 1)
+                attempt = result.submission_attempts[0]
+                self.assertEqual(attempt["issues"], [])
+                self.assertEqual(attempt["dropped_mechanisms"], [])
+                self.assertEqual(len(attempt["warnings"]), 1)
+                warning = attempt["warnings"][0]
+                self.assertEqual(warning["code"], "paper_quote_not_returned")
+                self.assertEqual(warning["paper_id"], PAPER_ID)
+                self.assertEqual(warning["source"], source)
+                self.assertIn("evidence_refs[0]", warning["location"])
+                self.assertEqual(warning["chunk_id"], "p1_c1" if source == "full_text" else None)
+                ref = result.report["mechanisms"][0]["evidence_refs"][0]
+                self.assertEqual(ref["quote"], quote)
+                self.assertFalse(ref["quote_verified"])
+                self.assertEqual(ref["warning"], "paper_quote_not_returned")
+                self.assertIn("source was read", result.report_md)
+                self.assertIn("not verified verbatim", result.report_md)
+
+    def test_unread_sources_still_reject_even_with_another_valid_reference(self):
+        for source, read_source, extra_valid in (("full_text", False, False),
+                                                ("full_text", True, False),
+                                                ("full_text", True, True),
+                                                ("abstract", False, False)):
+            with self.subTest(source=source, read_source=read_source, extra_valid=extra_valid):
+                proposal = report(evidence=source)
+                script = [self.search()]
+                if source == "full_text":
+                    script.extend([self.abstract(), self.opened()])
+                    if read_source:
+                        script.append(self.read())
+                        refs = proposal["mechanisms"][0]["evidence_refs"]
+                        if extra_valid:
+                            refs.append(copy.deepcopy(refs[0]))
+                        refs[0]["chunk_id"] = "p1_unread"
+                script.extend([response(tool("submit_report", proposal)),
+                               response(tool("submit_report", abstention()))])
+                result, _, _ = self.run_script(script)
+                attempt = result.submission_attempts[0]
+                self.assertEqual(attempt["status"], "rejected")
+                self.assertIn("paper_source_not_returned", {i["code"] for i in attempt["issues"]})
+                self.assertEqual(attempt["report"]["mechanisms"], [])
+
+    def test_quote_warning_does_not_bypass_schema_runtime_or_code_checks(self):
+        cases = ("short_quote", "long_quote", "missing_field", "runtime", "code")
+        for invalid in cases:
+            with self.subTest(invalid=invalid):
+                mode = "improve" if invalid in {"runtime", "code"} else "draft"
+                proposal = report(mode=mode)
+                mechanism = proposal["mechanisms"][0]
+                mechanism["evidence_refs"][0]["quote"] = "Paraphrased evidence that is absent from the returned text."
+                session = None
+                expected = "invalid_arguments"
+                if invalid == "short_quote":
+                    mechanism["evidence_refs"][0]["quote"] = "short"
+                elif invalid == "long_quote":
+                    mechanism["evidence_refs"][0]["quote"] = "x" * 401
+                elif invalid == "missing_field":
+                    del mechanism["intervention"]
+                elif invalid == "runtime":
+                    mechanism.update(implementation_basis="runtime", runtime_evidence=["evaluation.missing"])
+                    expected = "runtime_path_unavailable"
+                else:
+                    session = CodeReadingSession([{"id": "parent1", "stage": "draft",
+                                                   "execution_status": "completed", "code": SOURCE}], "parent1")
+                    mechanism["code_refs"] = [{"node_id": "parent1",
+                        "source_sha256": hashlib.sha256(SOURCE.encode()).hexdigest(),
+                        "start_line": 2, "end_line": 2}]
+                    expected = "code_anchor_unread"
+                script = [self.search(), self.abstract(), self.opened(), self.read(),
+                          response(tool("submit_report", proposal)),
+                          response(tool("submit_report", abstention()))]
+                result, _, _ = self.run_script(script, mode=mode, code_session=session,
+                                               runtime_context={"evaluation": {"score": 0.9}})
+                attempt = result.submission_attempts[0]
+                self.assertEqual(attempt["status"], "rejected")
+                self.assertIn(expected, {i["code"] for i in attempt["issues"]})
 
     def test_full_text_failure_can_fall_back_to_genuine_abstract_evidence(self):
         proposal = report(evidence="abstract")
@@ -266,7 +363,7 @@ class AnalogyLoopTests(unittest.TestCase):
 
     def test_invalid_report_cannot_be_silently_accepted_at_turn_limit(self):
         proposal = report()
-        proposal["mechanisms"][0]["evidence_refs"][0]["quote"] = "This invented evidence never appeared in the paper."
+        proposal["mechanisms"][0]["evidence_refs"][0]["chunk_id"] = "p1_unread"
         script = [self.search(), response(tool("read_abstract", {"ids": [PAPER_ID]}),
                                          tool("open_paper", {"paper_id": PAPER_ID})), self.read(),
                   response(tool("submit_report", proposal)),

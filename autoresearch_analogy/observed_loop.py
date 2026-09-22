@@ -177,8 +177,13 @@ def _submission(args, *, corpus, seen_ids, max_mechanisms, reading, abstracts,
     valid_empty = isinstance(args.get("mechanisms"), list) and not args["mechanisms"] and not issues
     status = ("accepted_partial" if issues else "accepted_complete") if rendered else (
         "abstained" if valid_empty else "rejected")
+    warnings = [{"code": ref["warning"],
+                 "location": f"validated_report.mechanisms[{index}].evidence_refs[{ref_index}]",
+                 "paper_id": ref["paper_id"], "source": ref["source"], "chunk_id": ref.get("chunk_id")}
+                for index, mechanism in enumerate(clean.get("mechanisms", []))
+                for ref_index, ref in enumerate(mechanism.get("evidence_refs", [])) if ref.get("warning")]
     return {"status": status, "normalized_report": details["normalized_report"],
-            "normalizations": details["normalizations"], "issues": issues,
+            "normalizations": details["normalizations"], "issues": issues, "warnings": warnings,
             "mechanism_mapping": mapping, "dropped_mechanisms": details["dropped_mechanisms"],
             "budget_dropped_mechanisms": budget_dropped, "validated_report": clean,
             "report": fitted, "report_md": rendered, "rendered_chars": len(rendered), **budget_hint}

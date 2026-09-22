@@ -219,12 +219,13 @@ def _paper_issues(candidate, location, seen_ids, corpus, reading, abstracts):
             text = abstracts.get(pid, "")
         else:
             text = ""
-        if not text or " ".join(quote.split()) not in " ".join(text.split()):
-            issues.append(_issue("paper_quote_not_returned", at + ".quote", ref,
-                "an exact quote from this episode's returned abstract or full-text chunk",
-                "Re-read this paper/chunk and copy its text, or remove the unsupported mechanism. "
-                "Do not relabel a rejected full-text reference as abstract evidence."))
+        if not text:
+            issues.append(_issue("paper_source_not_returned", at, ref,
+                "an abstract or full-text chunk actually returned in this episode",
+                "Read this source or remove the unsupported mechanism. "
+                "Opening a paper alone does not count as reading its body."))
         else:
+            # 已读来源是硬约束；逐字匹配由下层标记警告，不阻断交付。
             supported.add(pid)
     for index, pid in enumerate(ids):
         if isinstance(pid, str) and pid not in supported:
@@ -237,7 +238,7 @@ def _paper_issues(candidate, location, seen_ids, corpus, reading, abstracts):
 # 校验报告结构与证据引用，分别保留合格机制和拒绝原因。
 def validate_detailed(report, seen_ids, corpus, max_mechanisms, *, reading, abstracts,
                       code_session, runtime_context, mode):
-    """Validate shared facts and whole mechanisms without silently weakening evidence.
+    """Validate shared facts and whole mechanisms; retain quote mismatches as warnings.
 
     ``normalized_report`` preserves every submitted item, including rejected ones.
     ``report`` contains only independently valid complete mechanisms. Invalid shared

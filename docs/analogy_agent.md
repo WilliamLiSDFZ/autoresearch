@@ -156,6 +156,8 @@ CHECK_EXIT=0
 
 状态为 `ok`、`abstained` 或 `failed`；另外保存 MLEvolve 的 `accepted_complete` / `accepted_partial` 等交付状态。正常报告或明确 abstention 返回 exit code 0，检索失败返回 1，启动/配置/输入或内部错误返回 2。不能把 API 错误记成“没有合适论文”。部分机制因证据不足被剔除时，详细原因保留在 submission attempts。
 
+论文和引用片段必须确实在本次调用中读过；仅打开全文或在搜索结果中看到摘要不算读取。报告结构、必要字段、引文长度、代码位置和运行信息路径仍是硬校验。对已读来源，引文逐字匹配失败只记录 `paper_quote_not_returned` 警告，不剔除机制、不增加重试。`report.json` 的对应 `evidence_refs` 包含 `quote_verified` 和失败时的 `warning`；`report.md` 在引文旁显示提示，`submission_attempts.json` 另存 `warnings`。只有这类警告时仍为 `accepted_complete`，表示通过硬校验，不代表引文准确或迁移方案有效。
+
 默认全文缓存是 `/workspace/autoresearch/results/analogy-cache/paper_fulltext`（由项目所在位置推导），可用 `--cache-dir` 覆盖。`--offline` 仅禁止 PDF 网络下载，模型 API 仍会联网。不同 reader/解析器版本的缓存不会混用；因此不会直接认领 MLEvolve 原缓存为兼容缓存。
 
 将项目、语料与结果放在实际挂载的 PVC 上。`/workspace` 名字本身不意味着持久化。实验时固定入口、整个 `autoresearch_analogy/`、配置及语料；freeze hash 是检测机制，更强约束可用独立只读挂载。历史接入改变了固定代码和默认预算，只用于更新代码后新建的实验；保留旧 run 的原协议锁。

@@ -218,6 +218,8 @@ For each mechanism, supply evidence_refs from text ACTUALLY RETURNED by read_pap
 paper_id, source ('full_text' or 'abstract'), chunk_id (full text only), and a short exact quote
 (12-400 characters). Opening a paper alone supplies no full-text evidence. Every cited paper
 needs a valid reference; page/hash metadata are attached by the tool, not invented by you.
+Quote mismatches against a genuinely read source are retained with a warning, not treated
+as verified quotations. Unread sources are still rejected. Copy the returned text faithfully.
 If full text is unavailable, cite the abstract as source='abstract' and label unverified method
 details in limitations. Do not pretend an abstract establishes assumptions it does not contain.
 Include assumptions (source method's requirements), target_fit (met and unknown requirements),
@@ -307,9 +309,12 @@ def _validate_evidence(m: dict, kept: List[str], reading: PaperReadingSession,
             text = abstracts.get(pid, "")
         else:
             text = ""
-        if not text or " ".join(quote.split()) not in " ".join(text.split()):
-            problems.append(f"rejected evidence for {pid}: quote not found in text returned to this episode")
+        if not text:
+            problems.append(f"rejected evidence for {pid}: source text not returned to this episode")
             continue
+        metadata["quote_verified"] = " ".join(quote.split()) in " ".join(text.split())
+        if not metadata["quote_verified"]:
+            metadata["warning"] = "paper_quote_not_returned"
         refs.append({"paper_id": pid, "source": source, "quote": quote, **metadata})
     return refs, problems
 
@@ -427,7 +432,10 @@ def render_report(report: dict, corpus: PaperCorpus, budget_chars: int, mode: st
         if "evidence_refs" in m:
             evidence = "\n".join(
                 f"- `{r['paper_id']}` ({'PDF p. ' + str(r['page']) + ', ' + r['chunk_id'] if r['source'] == 'full_text' else 'abstract only'}): "
-                f"{json.dumps(r['quote'], ensure_ascii=False)}" for r in m["evidence_refs"])
+                f"{json.dumps(r['quote'], ensure_ascii=False)}"
+                + (" **Warning (paper_quote_not_returned): source was read, but this quotation is not verified "
+                   "verbatim; it may be a paraphrase, extraction difference, or misstatement.**"
+                   if r.get("quote_verified") is False else "") for r in m["evidence_refs"])
             blocks[-1] += (f"\n**Evidence level**: {m['evidence_level']}\n{evidence}\n"
                            f"**Source assumptions**: {m['assumptions']}\n"
                            f"**Fit to this task**: {m['target_fit']}\n"
