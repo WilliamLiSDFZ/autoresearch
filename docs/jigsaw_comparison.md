@@ -130,6 +130,30 @@ kubectl --context nautilus -n ecepxie apply \
 
 后续 exec、日志和结果拉取沿用下文命令，将 `jubias-pair-001` 换成对应 pair 标识。各 Pod 的 `RUN_TAG` 仍包含 Pod UID，agent 会据此创建新的 worktree。
 
+### pair004 / pair005 / pair006
+
+三对 Job 位于 `k8s/job-jigsaw-pair{004,005,006}-{baseline,analogy}.yaml`，沿用 pair003 的六小时上限、单 GPU、8 CPU、32Gi 内存、共享只读 venv 和兼容 GPU 调度规则。Job 名、pair labels、`RUN_TAG` 前缀及各自的 home 子目录均已独立；worktree 继续由 Pod UID 区分。
+
+启动前先把本轮代码（包括实验历史接入和引用 warning 改动）提交并同步到 PVC 主仓库，保持共同起点干净，再启动 Job；不要等 Job 记录起始 commit 后才 pull。在挂载完整 PVC 的 dev Pod 中创建会话目录：
+
+```bash
+for PAIR in 004 005 006; do
+  for ARM in baseline analogy; do
+    mkdir -p "/workspace/autoresearch-pairs/jubias-pair-$PAIR/$ARM/home"
+  done
+done
+```
+
+在本机仓库根目录手动 apply（也可只运行其中一对）：
+
+```bash
+for PAIR in 004 005 006; do
+  kubectl --context nautilus -n ecepxie apply \
+    -f "k8s/job-jigsaw-pair${PAIR}-baseline.yaml" \
+    -f "k8s/job-jigsaw-pair${PAIR}-analogy.yaml"
+done
+```
+
 ## 2. 创建 Job，等待启动检查完成
 
 在本项目目录执行：
