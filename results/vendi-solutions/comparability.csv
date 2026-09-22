@@ -1,0 +1,4 @@
+study_id,task,pair_id,runs,warnings
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-001,jubias-pair-001-analogy-256b6bd9-6a19-4ffb-ba27-6df516483f0b;jubias-pair-001-baseline-44e0ae1e-6af8-43bd-a941-c7d230dca3f7,gpu_differs;start_commit_differs;budget_seconds_unknown;agent_model_unknown
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-002,jubias-pair-002-analogy-750393d4-d146-487c-8f0f-f0ff710ff006;jubias-pair-002-baseline-97784c12-1daf-4f23-930a-3c856920f958,gpu_differs;budget_seconds_unknown;agent_model_unknown
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-003,jubias-pair-003-analogy-289ef6cc-7122-4b20-a6df-6da2767d0636;jubias-pair-003-baseline-529c8229-3944-4383-ad99-83c2b9d671d1,gpu_differs;budget_seconds_unknown;agent_model_unknown

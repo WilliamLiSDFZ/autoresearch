@@ -1,0 +1,11 @@
+study_id,task,run_id,arm,stage,view,pair_id,n_candidates,n_available,n_valid,n_not_verified_completed,n_missing,n_errors,n_pending,n_excluded,issues,run,reason
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-001-analogy-256b6bd9-6a19-4ffb-ba27-6df516483f0b,analogy,solution,implementation,jubias-pair-001,7,0,7,0,0,7,0,0,embedding_failed:EmbeddingRequestError,,
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-001-baseline-44e0ae1e-6af8-43bd-a941-c7d230dca3f7,baseline,solution,implementation,jubias-pair-001,11,0,6,5,0,11,0,0,embedding_failed:EmbeddingRequestError,,
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-002-analogy-750393d4-d146-487c-8f0f-f0ff710ff006,analogy,solution,implementation,jubias-pair-002,17,0,16,1,0,17,0,0,embedding_failed:EmbeddingRequestError,,
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-002-baseline-97784c12-1daf-4f23-930a-3c856920f958,baseline,solution,implementation,jubias-pair-002,9,0,8,1,0,9,0,0,embedding_failed:EmbeddingRequestError,,
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-003-analogy-289ef6cc-7122-4b20-a6df-6da2767d0636,analogy,solution,implementation,jubias-pair-003,10,0,7,3,0,10,0,0,embedding_failed:EmbeddingRequestError,,
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-003-baseline-529c8229-3944-4383-ad99-83c2b9d671d1,baseline,solution,implementation,jubias-pair-003,17,0,16,1,0,17,0,0,embedding_failed:EmbeddingRequestError,,
+,,,,,,,,,,,,,,,,jubias-pair-001-analogy,no_verified_source_candidates
+,,,,,,,,,,,,,,,,jubias-pair-001-analogy-431ea4fc-f031-43bb-bdf5-a8e28bc9e787,no_verified_source_candidates
+,,,,,,,,,,,,,,,,jubias-pair-001-analogy-67de599d-d71d-4987-af7b-58469549f21e,no_verified_source_candidates
+,,,,,,,,,,,,,,,,jubias-pair-001-baseline,no_verified_source_candidates

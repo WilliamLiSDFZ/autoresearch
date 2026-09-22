@@ -1,0 +1,53 @@
+{
+  "version": "autoresearch-vendi-v1",
+  "created_at_utc": "2026-09-22T08:21:55.548676+00:00",
+  "settings": {
+    "mode": "solutions",
+    "runs": "/Users/william/nautilus/autoresearch-result",
+    "input": null,
+    "manifest": null,
+    "parent_map": null,
+    "out": "/Users/william/Documents/project/python/autoresearch/results/vendi-solutions",
+    "cache": "/Users/william/Documents/project/python/autoresearch/results/vendi-solutions-cache",
+    "baseline": "baseline",
+    "arms": null,
+    "stages": [
+      "solution"
+    ],
+    "valid_only": false,
+    "summary_model": "gpt-5.6-terra",
+    "summary_api": "responses",
+    "embedding_backend": "openai",
+    "embedding_model": "text-embedding-3-small",
+    "embedding_revision": null,
+    "embedding_max_length": null,
+    "reembed": false,
+    "repeats": 1000,
+    "seed": 42,
+    "dry_run": false,
+    "prepare_only": false,
+    "no_plots": false,
+    "endpoint_sha256": "2aa01f3e383194fef163e7af6470828a490e97a5c103fe564c3134996ed70722"
+  },
+  "embedding": {
+    "backend": "failed",
+    "error": "embedding_failed:EmbeddingRequestError",
+    "diagnostic": "Embedding request failed (NotFoundError; HTTP 404; attempts=1)"
+  },
+  "summary_api_calls": 53,
+  "source_hashes": {
+    "compare_vendi.py": "7f057b392616847b01ecf405e807049072da268d2b09dd761fcfb625d952a56f",
+    "analyze_runs.py": "224926b7a31cc52aaa7603048d77e881257d64a734cf17cadf54d425073c7cdb",
+    "autoresearch_vendi/__init__.py": "720c077541a8393937cf396582f20f13dfc4607bfb73dd626b03996715a3b1a6",
+    "autoresearch_vendi/assessment.py": "3669a2edb09ff7f2235e96b12160b1001199ea6500ec5da0f2c83f4547221a6a",
+    "autoresearch_vendi/changes.py": "735084b92f0dcd9d0fe53115b112a50fc3a456b5a29d5e4302035876edb7c777",
+    "autoresearch_vendi/metrics.py": "8b16e2d71b1ddcb0db73306e655953e38558ae4be9ec99a722ff47e175caf9b0",
+    "autoresearch_vendi/reader.py": "d60f79ed022e6fd1f3fa5c50135d29517cf92dde649b11f08c5b2d94550851a6",
+    "autoresearch_vendi/runtime.py": "a56b7f67df35a6a80d9031f1ccf1c90aca4036c476c9830ceb9a47f189d5e650",
+    "compare_solution_vendi.py": "5f561cd64f258fd5e3d2cb767b2b39015c94b9d7b96c793203b75cbe647c3122"
+  },
+  "charts": [],
+  "n_samples": 71,
+  "prepare_only": false,
+  "comparison": "q=1 cosine Vendi; matched counts; whole-candidate static solution summaries; no parent required; descriptive"
+}

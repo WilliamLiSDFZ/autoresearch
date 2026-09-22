@@ -1,0 +1,7 @@
+study_id,task,run_id,arm,pair_id,cohort,stage,n,vendi,status
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-001-analogy-256b6bd9-6a19-4ffb-ba27-6df516483f0b,analogy,jubias-pair-001,230f38543aaf,solution,7,1.75116058376569,descriptive_unmatched_counts
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-001-baseline-44e0ae1e-6af8-43bd-a941-c7d230dca3f7,baseline,jubias-pair-001,230f38543aaf,solution,11,1.8490473063350985,descriptive_unmatched_counts
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-002-analogy-750393d4-d146-487c-8f0f-f0ff710ff006,analogy,jubias-pair-002,230f38543aaf,solution,17,1.7532524834343532,descriptive_unmatched_counts
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-002-baseline-97784c12-1daf-4f23-930a-3c856920f958,baseline,jubias-pair-002,230f38543aaf,solution,9,1.6835515313721903,descriptive_unmatched_counts
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-003-analogy-289ef6cc-7122-4b20-a6df-6da2767d0636,analogy,jubias-pair-003,230f38543aaf,solution,10,1.7962579063922766,descriptive_unmatched_counts
+jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-pair-003-baseline-529c8229-3944-4383-ad99-83c2b9d671d1,baseline,jubias-pair-003,230f38543aaf,solution,17,1.5677183590206114,descriptive_unmatched_counts

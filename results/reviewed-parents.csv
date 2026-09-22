@@ -1,0 +1,2 @@
+run,candidate_id,stage,parent_id,child_sha256,parent_sha256,evidence
+jubias-pair-001-baseline-44e0ae1e-6af8-43bd-a941-c7d230dca3f7,trial0011,improve,trial0010,3a8e05618d2df57f5ac04153bcdc1b5e47494601b953e6b41148fa238c38cec3,f6c0b1891bf025d089870f8d52688fc5550843157106b184bdbb7331ce0f530b,results.tsv:12 explicitly states trial0011 trial0010 + subgroup-negative weight 0.25->0.5; both source.json hashes verified; source diff matches weight change
