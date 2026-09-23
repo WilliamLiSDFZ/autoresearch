@@ -1,0 +1,11 @@
+{
+  "title": "BiLSTM Toxicity Classifier with AUC Head Refit",
+  "summary": "The solution tokenizes lowercased comments with a regex, truncates to 200 tokens, and builds a training-only vocabulary from tokens occurring at least twice, capped at 120,000; unseen tokens map to UNK. A word embedding with spatial channel dropout feeds two bidirectional LSTMs. Masked mean and max pooling are concatenated and passed through two residual ReLU dense layers and a scalar logit head. Training uses soft toxicity targets, BCE-with-logits, Adam, mixed-precision gradient scaling, gradient clipping, linearly decayed learning rate, and shuffled length-bucketed batches. After base training, it freezes embeddings and LSTMs and refits the dense layers and head using sampled identity/toxicity strata. This stage maximizes a differentiable pairwise-AUC surrogate combining overall, subgroup, BPSN, and BNSP AUC power means, while retaining a weighted BCE anchor. Inference batches by length and returns sigmoid probabilities.",
+  "evidence": [
+    "SOURCE:24-51",
+    "SOURCE:64-131",
+    "SOURCE:148-175",
+    "SOURCE:191-273",
+    "SOURCE:285-355"
+  ]
+}

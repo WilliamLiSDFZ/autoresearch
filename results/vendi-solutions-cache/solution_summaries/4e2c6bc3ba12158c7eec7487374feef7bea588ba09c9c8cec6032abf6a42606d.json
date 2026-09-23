@@ -1,0 +1,11 @@
+{
+  "title": "BiLSTM Toxicity Classifier with Ranking Residual",
+  "summary": "The solution tokenizes lowercased comments with a regex, truncates to 256 tokens, and builds a training-only frequency-capped vocabulary with padding and unknown tokens. A two-layer bidirectional LSTM encodes word embeddings with spatial embedding dropout. Masked max and mean pooling are concatenated and passed through residual dense transformations to produce toxicity and identity logits. Training uses soft toxicity targets, weighted main binary cross-entropy, auxiliary identity BCE, Adam, mixed precision, gradient clipping, length-bucketed batches, learning-rate decay with a floor, and late weight averaging. Validation probabilities are sigmoid-transformed logits; the best epoch or averaged state is selected by the supplied evaluator. A second stage freezes this encoder and trains a zero-initialized linear residual head using sampled subgroup/background positive-negative ranking losses, emphasizing harder identity cells by softmax weighting. Validation tests fixed residual blend weights and retains the best-scoring probabilities.",
+  "evidence": [
+    "SOURCE:33-67",
+    "SOURCE:98-189",
+    "SOURCE:201-287",
+    "SOURCE:328-375",
+    "SOURCE:386-471"
+  ]
+}

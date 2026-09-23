@@ -1,0 +1,12 @@
+{
+  "title": "Transformer toxicity classifier with identity-aware ranking loss",
+  "summary": "The solution trains a transformer classifier from scratch on GPT-2 BPE-tokenized comments, truncating to 256 tokens and padding with a dedicated token. The model has token and positional embeddings, eight pre-norm self-attention/MLP blocks, and masked mean-plus-max pooling feeding a multilabel head for toxicity and identity attributes. Training uses weighted binary cross-entropy: toxicity has weight 1, while identity auxiliary labels share a total weight of 0.5. Example weights upweight identity mentions and toxicity/identity mismatch cases. From epoch two, it adds a logistic pairwise ranking loss over overall toxicity and, for each identity, subgroup, background-positive/subgroup-negative, and subgroup-positive/background-negative slices. Each batch is augmented with sampled toxic and non-toxic identity examples from per-slice reservoirs. AdamW uses separate higher-rate unregularized embedding parameters, cosine decay after linear warmup, mixed fp16 training, and gradient clipping. Inference batches by length and returns sigmoid-transformed toxicity logits.",
+  "evidence": [
+    "SOURCE:29-51",
+    "SOURCE:70-146",
+    "SOURCE:153-218",
+    "SOURCE:226-264",
+    "SOURCE:276-316",
+    "SOURCE:330-356"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "title": "Identity-Auxiliary BiRNN Toxicity Classifier",
+  "summary": "The solution lowercases and regex-tokenizes comments, builds a vocabulary from the 120,000 most frequent training tokens, maps unknown tokens to a dedicated ID, and head-truncates/pads sequences to 220 tokens. A learned 300-dimensional embedding with channel-wise spatial dropout feeds a bidirectional LSTM followed by a bidirectional GRU. It concatenates masked max and length-normalized mean pools from both recurrent outputs, applies a residual ReLU/dropout dense block, and predicts toxicity plus one sigmoid logit per identity attribute. Training uses length-bucketed shuffled batches. The primary binary cross-entropy is reweighted to emphasize identity-containing examples and toxicity/identity mismatches, then mean-normalized; unweighted auxiliary BCE is added for identity labels. AdamW uses mixed precision, gradient scaling, norm clipping, and per-epoch multiplicative learning-rate decay. Inference sorts by length, uses sigmoid toxicity probabilities, and averages validation predictions from the final two epochs.",
+  "evidence": [
+    "SOURCE:31-51",
+    "SOURCE:60-107",
+    "SOURCE:114-150",
+    "SOURCE:157-170",
+    "SOURCE:212-257",
+    "SOURCE:266-278"
+  ]
+}

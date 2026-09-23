@@ -1,0 +1,12 @@
+{
+  "title": "Bias-weighted Transformer toxicity classifier",
+  "summary": "A bidirectional Transformer encoder is trained from scratch for comment toxicity prediction with auxiliary identity-label prediction. GPT-2 BPE tokenization prepends an end-of-text token as CLS, truncates comments to 256 tokens, pads batches to length buckets, and masks padding in attention and pooling. The 6-layer, 8-head, 512-dimensional encoder uses rotary embeddings, RMS normalization, non-causal scaled dot-product attention, squared-ReLU MLPs, residual connections, and concatenated CLS, masked mean, and masked max pooling for a linear multi-label head. Training uses weighted binary cross-entropy for soft toxicity labels, with higher weights for identity/toxicity combinations, plus equally weighted unweighted BCE for identity targets. Length-sorted shuffled batches are used for two epochs. Head and token embeddings use AdamW; transformer matrices use Muon with momentum, polar orthogonalization, adaptive scaling, and selective weight decay. Learning rates warm up then decay linearly. Inference returns sigmoid toxicity probabilities.",
+  "evidence": [
+    "SOURCE:29-37",
+    "SOURCE:52-160",
+    "SOURCE:285-302",
+    "SOURCE:327-405",
+    "SOURCE:411-485",
+    "SOURCE:442-454"
+  ]
+}

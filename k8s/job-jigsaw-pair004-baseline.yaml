@@ -41,6 +41,12 @@ spec:
                     operator: NotIn
                     values:
                       - nautilus-ext-gpu01.fullerton.edu
+                  # Field selectors require a single value per In/NotIn condition.
+                  # 2026-09-22: node unavailable, unhealthy GPUs and CSI failure.
+                  - key: metadata.name
+                    operator: NotIn
+                    values:
+                      - k8s-haosu-22.sdsc.optiputer.net
               # Observed L40S node without a compute label; do not admit unknown GPUs.
               - matchExpressions:
                   - key: nvidia.com/gpu.compute.major
@@ -53,6 +59,12 @@ spec:
                     operator: NotIn
                     values:
                       - nautilus-ext-gpu01.fullerton.edu
+                  # Field selectors require a single value per In/NotIn condition.
+                  # 2026-09-22: node unavailable, unhealthy GPUs and CSI failure.
+                  - key: metadata.name
+                    operator: NotIn
+                    values:
+                      - k8s-haosu-22.sdsc.optiputer.net
       containers:
         - name: researcher
           image: pytorch/pytorch:2.7.1-cuda12.6-cudnn9-runtime

@@ -1,2 +1,2 @@
 cohort,study_id,task_id,metric_version,maximize,treatment,reference,n_pairs,mean_effect,ci95_low,ci95_high,flagged_pairs
-0723a65cdf,jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-continuous-auc-v1,True,analogy,baseline,3,-0.014825667294913006,-0.06191193228353688,0.03226059769371087,3
+0723a65cdf,jubias,jigsaw-unintended-bias-in-toxicity-classification,jubias-continuous-auc-v1,True,analogy,baseline,6,-0.00981969748052399,-0.023730240172603674,0.004090845211555696,6

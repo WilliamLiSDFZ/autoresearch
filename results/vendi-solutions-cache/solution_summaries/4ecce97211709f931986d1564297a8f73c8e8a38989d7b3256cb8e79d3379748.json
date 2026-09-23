@@ -1,0 +1,12 @@
+{
+  "title": "Weighted BiLSTM Toxicity Classifier",
+  "summary": "The solution trains a GPU word-level toxicity classifier with auxiliary identity prediction heads. It lowercases and regex-tokenizes comments, truncates them to 220 tokens, builds a training-derived vocabulary using a minimum frequency of 5 and a 200,000-type cap, maps pruned or unseen words to an unknown token, and pads batches dynamically. The model uses 256-dimensional learned embeddings with spatial embedding dropout, two 256-unit bidirectional LSTM layers, masked max and mean pooling, two 512-unit ReLU dense layers with a residual connection, and logits for toxicity plus identity labels. Toxicity loss is weighted binary cross-entropy, up-weighting identity-mention, non-identity toxic, and identity non-toxic examples; unweighted auxiliary BCE is added. Training runs four epochs with shuffled length-bucketed batches, Adam, mixed-precision gradient scaling, gradient clipping at 1.0, and exponential learning-rate decay. Inference applies sigmoid to the toxicity logit in evaluation batches.",
+  "evidence": [
+    "SOURCE:28-53",
+    "SOURCE:71-158",
+    "SOURCE:162-171",
+    "SOURCE:175-214",
+    "SOURCE:218-252",
+    "SOURCE:265-325"
+  ]
+}

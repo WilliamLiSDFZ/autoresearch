@@ -1,0 +1,12 @@
+{
+  "title": "Bias-Aware BiLSTM Text Classifier",
+  "summary": "The solution tokenizes lowercased comments into words and punctuation, builds a train-only frequency vocabulary, maps rare/unseen tokens to UNK, and head-truncates sequences to 256 tokens. A randomly initialized embedding with spatial dropout feeds two stacked bidirectional LSTMs. Masked max and mean pooling from both layers are concatenated, passed through two residual-style ReLU dense layers, and used for a toxicity logit and soft identity-label auxiliary logits. Training upweights identity-containing examples, background positives, and subgroup negatives through normalized per-example weights. The objective is weighted binary cross-entropy for toxicity plus equally weighted binary cross-entropy for identity targets. Length-bucketed shuffled batches reduce padding. AdamW uses separate embedding and other-parameter groups, mixed precision, warmup followed by exponential learning-rate decay, and gradient clipping. Inference sorts by length, dynamically truncates batch padding, and applies sigmoid. Predictions are checkpoint-ensembled with later epochs weighted more heavily, then averaged across three seed-trained models.",
+  "evidence": [
+    "SOURCE:33-58",
+    "SOURCE:85-154",
+    "SOURCE:173-203",
+    "SOURCE:213-245",
+    "SOURCE:269-331",
+    "SOURCE:334-349"
+  ]
+}

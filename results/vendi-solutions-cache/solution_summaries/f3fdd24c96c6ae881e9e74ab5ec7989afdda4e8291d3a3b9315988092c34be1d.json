@@ -1,0 +1,13 @@
+{
+  "title": "Masked-token BiLSTM toxicity ensemble",
+  "summary": "Comments are lowercased and regex-tokenized, head-truncated to 192 tokens, and mapped to a training-derived vocabulary (minimum frequency 3; padding and unknown IDs). A shared encoder is pretrained for one pass by replacing 15% of non-padding tokens with the unknown ID and predicting their originals using adaptive softmax. Each specialist uses learned 256-dimensional embeddings, two bidirectional LSTM layers (128 units per direction), masked mean/max pooling, two residual ReLU dense layers, and a logit head. One model minimizes fractional binary cross-entropy; the other adds a conditional identity-dependence penalty: within each hard toxicity class, it penalizes squared probability-mean gaps between identity-present and identity-absent examples. Both train on 95% of training rows with AdamW, warmup/cosine learning rate schedule, mixed precision, and gradient clipping. A held-out 5% training split selects a grid-searched logit blend. Validation inference length-sorts batches, blends logits, and applies sigmoid probabilities.",
+  "evidence": [
+    "SOURCE:30-66",
+    "SOURCE:94-172",
+    "SOURCE:191-226",
+    "SOURCE:236-274",
+    "SOURCE:277-334",
+    "SOURCE:337-374",
+    "SOURCE:387-445"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "title": "Transformer Toxicity Classifier with MLM Pretraining",
+  "summary": "Comments are lowercased, regex-tokenized, truncated to 256 tokens, and encoded with a vocabulary fitted only on training text; padding is 0 and unknown tokens are 1. A 6-layer pre-layer-normalized Transformer encoder uses token and positional embeddings. Its classifier concatenates masked mean and max token pooling, then applies a GELU dense layer to produce a toxicity logit and auxiliary identity logits. The encoder is first trained for one epoch on training comments using masked-language modeling with 15% eligible-token masking, tied embedding decoder weights, and cross-entropy over a restricted frequent-token vocabulary. Fine-tuning minimizes bias-weighted toxicity BCE plus BCE for soft identity targets. Weights upweight identity-containing examples, non-identity positives, and identity negatives. Length-bucketed shuffled batches obey a token budget. AdamW, warmup followed by linear decay, mixed precision, and gradient clipping are used. Inference applies sigmoid toxicity probabilities and averages epoch predictions with exponentially increasing epoch weights.",
+  "evidence": [
+    "SOURCE:33-65",
+    "SOURCE:92-161",
+    "SOURCE:168-206",
+    "SOURCE:216-256",
+    "SOURCE:291-335",
+    "SOURCE:340-404"
+  ]
+}

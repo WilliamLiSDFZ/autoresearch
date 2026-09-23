@@ -1,11 +1,11 @@
 {
   "version": "autoresearch-vendi-v1",
-  "created_at_utc": "2026-09-22T08:37:26.464361+00:00",
+  "created_at_utc": "2026-09-23T08:05:47.993811+00:00",
   "settings": {
     "mode": "solutions",
-    "runs": null,
-    "input": "/Users/william/Documents/project/python/autoresearch/results/vendi-solutions/samples.jsonl",
-    "manifest": null,
+    "runs": "/Users/william/nautilus/autoresearch-result",
+    "input": null,
+    "manifest": "jigsaw_comparisons.csv",
     "parent_map": null,
     "out": "/Users/william/Documents/project/python/autoresearch/results/vendi-solutions-local",
     "cache": "/Users/william/Documents/project/python/autoresearch/results/vendi-solutions-cache",
@@ -26,7 +26,8 @@
     "seed": 42,
     "dry_run": false,
     "prepare_only": false,
-    "no_plots": false
+    "no_plots": false,
+    "endpoint_sha256": "2aa01f3e383194fef163e7af6470828a490e97a5c103fe564c3134996ed70722"
   },
   "embedding": {
     "model": "sentence-transformers/all-MiniLM-L6-v2",
@@ -36,10 +37,10 @@
     "backend": "sentence-transformers",
     "backend_version": "6.1.0"
   },
-  "summary_api_calls": 0,
+  "summary_api_calls": 173,
   "source_hashes": {
     "compare_vendi.py": "7f057b392616847b01ecf405e807049072da268d2b09dd761fcfb625d952a56f",
-    "analyze_runs.py": "224926b7a31cc52aaa7603048d77e881257d64a734cf17cadf54d425073c7cdb",
+    "analyze_runs.py": "dbd582eeaa81810944524be59cf0052b4f29e944fd141da55fd8dc3e29281d6c",
     "autoresearch_vendi/__init__.py": "720c077541a8393937cf396582f20f13dfc4607bfb73dd626b03996715a3b1a6",
     "autoresearch_vendi/assessment.py": "3669a2edb09ff7f2235e96b12160b1001199ea6500ec5da0f2c83f4547221a6a",
     "autoresearch_vendi/changes.py": "735084b92f0dcd9d0fe53115b112a50fc3a456b5a29d5e4302035876edb7c777",
@@ -56,7 +57,7 @@
     "jigsaw-unintended-bias-in-toxicity-classification__jubias__solution__230f38543aaf_paired.png",
     "jigsaw-unintended-bias-in-toxicity-classification__jubias__solution__230f38543aaf_paired.pdf"
   ],
-  "n_samples": 71,
+  "n_samples": 165,
   "prepare_only": false,
   "comparison": "q=1 cosine Vendi; matched counts; whole-candidate static solution summaries; no parent required; descriptive"
 }

@@ -1,0 +1,11 @@
+{
+  "title": "Bias-Weighted Bidirectional GRU Toxicity Classifier",
+  "summary": "The solution lowercases comments and tokenizes words/contractions and punctuation. It builds a training-split vocabulary from tokens occurring at least five times, capped at 200,000 entries; unknown or empty comments use a reserved token, and sequences are truncated to 220 tokens. A learned 300-dimensional embedding with spatial dropout feeds two stacked bidirectional GRU layers (the configurable cell is set to GRU). Masked max and mean sequence pooling are concatenated, passed through two residual ReLU linear transforms, and mapped to one toxicity logit. Training uses length-bucketed, right-padded batches, weighted binary cross-entropy, Adam, CUDA mixed precision with gradient scaling, and exponential learning-rate decay after each epoch. Weights emphasize identity-mention rows, toxic rows without identities, and non-toxic rows with identities, then normalize mean loss weight. Validation inference applies sigmoid probabilities; predictions from the final three epochs are averaged, then averaged across independently seeded models if configured.",
+  "evidence": [
+    "SOURCE:30-57",
+    "SOURCE:76-157",
+    "SOURCE:161-210",
+    "SOURCE:213-287",
+    "SOURCE:301-355"
+  ]
+}

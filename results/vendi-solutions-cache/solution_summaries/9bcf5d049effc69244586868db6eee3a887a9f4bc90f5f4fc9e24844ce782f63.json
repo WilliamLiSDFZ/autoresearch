@@ -1,0 +1,11 @@
+{
+  "title": "Word-level BiLSTM toxicity classifier",
+  "summary": "The solution lowercases comments and tokenizes words/contractions and punctuation, retaining the first 192 tokens. A vocabulary is built only from training tokens occurring at least three times, capped at 200,000 entries; padding and unknown tokens have dedicated IDs. A train-from-scratch model uses 256-dimensional embeddings, spatial embedding dropout, two bidirectional LSTM layers with 192 hidden units per direction, masked mean and max pooling, two residual ReLU dense layers, and a scalar logit head. It trains for three epochs with shuffled length-bucketed batches, AdamW, linear warm-up followed by cosine decay, mixed-precision gradient scaling, and global-norm clipping. The objective is BCE with fractional toxicity targets plus a penalty that, within each hard toxicity class, minimizes squared differences in mean predicted probabilities between identity-present and identity-absent examples across identity columns. Validation sequences are length-sorted for batched inference; sigmoid probabilities are restored to prepared row order and evaluated with the supplied metric.",
+  "evidence": [
+    "SOURCE:30-56",
+    "SOURCE:84-150",
+    "SOURCE:153-174",
+    "SOURCE:181-237",
+    "SOURCE:249-322"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "title": "BiLSTM Toxicity Classifier with Identity Ranking Residual",
+  "summary": "Comments are lowercased, regex-tokenized, head-truncated to 256 tokens, and encoded with a training-only vocabulary retaining tokens seen at least twice (up to 300,000); padding and unknown IDs are reserved. A two-layer bidirectional LSTM consumes 256-dimensional embeddings with word-vector dropout. Masked max and mean pooling are concatenated, transformed through additive ReLU dense residual layers, and used for toxicity and identity logits. Training uses soft toxicity targets, identity multi-label BCE, and sample weights emphasizing identity, toxic-background, and non-toxic identity rows. Adam, fp16 autocast, gradient scaling, clipping, length-bucketed batches, decayed learning rate, and late weight averaging are used; the best validation-scored epoch or averaged state is selected. A frozen selected encoder optionally feeds a zero-initialized interaction residual head trained on subgroup/background pairwise softplus ranking losses, with softmax emphasis on difficult identity cells. Validation chooses a residual blend weight, and inference outputs sigmoid probabilities.",
+  "evidence": [
+    "SOURCE:33-70",
+    "SOURCE:100-191",
+    "SOURCE:203-252",
+    "SOURCE:259-311",
+    "SOURCE:352-399",
+    "SOURCE:410-497"
+  ]
+}

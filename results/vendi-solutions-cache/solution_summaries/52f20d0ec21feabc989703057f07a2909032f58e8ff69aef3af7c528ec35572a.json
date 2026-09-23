@@ -1,0 +1,12 @@
+{
+  "title": "Bias-Aware BiLSTM Toxicity Classifier",
+  "summary": "The solution lowercases comments, tokenizes words and punctuation, truncates to 220 tokens, and builds a training-only vocabulary of up to 200,000 tokens occurring at least twice. It encodes texts with PAD and UNK IDs and forms shuffled, length-bucketed padded batches. A randomly initialized 300-dimensional embedding with spatial dropout feeds two stacked bidirectional LSTMs. Masked mean and max sequence pooling are concatenated, passed through two residual ReLU dense layers, and used for a toxicity logit plus identity-label auxiliary logits. Training uses weighted binary cross-entropy for toxicity, up-weighting subgroup and subgroup/label-disagreement cases, plus four times a masked auxiliary BCE over available identity labels. Adam, mixed-precision loss scaling, gradient clipping, and per-epoch exponential learning-rate decay are used for four epochs. Validation inference applies sigmoid probabilities; probabilities from epochs 1 onward are averaged.",
+  "evidence": [
+    "SOURCE:38-65",
+    "SOURCE:92-120",
+    "SOURCE:145-170",
+    "SOURCE:174-215",
+    "SOURCE:247-301",
+    "SOURCE:308-354"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "title": "Bias-Aware BiLSTM Toxicity Ensemble",
+  "summary": "The method lowercases comments, splits words and punctuation, truncates to 220 tokens, and builds a training-only vocabulary of up to 200,000 tokens occurring at least twice. A randomly initialized 300-dimensional embedding with channel-wise spatial dropout feeds two stacked bidirectional LSTMs. Masked mean and max pooling are concatenated, processed by two residual ReLU dense layers, and sent to a toxicity logit head plus identity auxiliary heads. Training uses weighted toxicity BCE, upweighting subgroup and subgroup/label-mismatch cases, plus masked BCE over identity labels with missing values excluded. It trains three random-seed models for four epochs using Adam, cosine learning-rate decay, mixed precision, loss scaling, and gradient clipping. Length-bucketed shuffled batches reduce padding. At inference, sigmoid toxicity probabilities are produced in length-bucketed batches and averaged across snapshots from epochs 1 onward for all seeds.",
+  "evidence": [
+    "SOURCE:39-63",
+    "SOURCE:93-121",
+    "SOURCE:146-171",
+    "SOURCE:175-216",
+    "SOURCE:284-295",
+    "SOURCE:301-359",
+    "SOURCE:362-364"
+  ]
+}

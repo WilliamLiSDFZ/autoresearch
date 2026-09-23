@@ -1,0 +1,11 @@
+{
+  "title": "Disagreement-resampled BiLSTM toxicity classifier",
+  "summary": "The solution tokenizes lowercased comments with a regex, truncates them to 200 tokens, and builds a training-only vocabulary of up to 120,000 tokens occurring at least twice; unseen tokens map to UNK. A learned word embedding with spatial channel dropout feeds two bidirectional LSTMs. Masked mean and max sequence pooling are concatenated, processed by two residual ReLU dense layers, and mapped to one toxicity logit. It first trains a proxy for one epoch using generalized cross-entropy on thresholded targets, then computes per-row disagreement between proxy probabilities and hard labels. Main-model training initializes from the proxy and samples rows with replacement using a 50/50 uniform/disagreement weight mixture, capped at five times mean weight. The main objective is BCE with continuous target fractions. Training uses Adam, linearly decayed learning rate, mixed precision, gradient scaling, and norm clipping. Length-bucketed batches reduce padding. Inference applies sigmoid logits in evaluation mode and saves validation probabilities and model weights.",
+  "evidence": [
+    "SOURCE:24-49",
+    "SOURCE:62-115",
+    "SOURCE:118-171",
+    "SOURCE:174-243",
+    "SOURCE:255-304"
+  ]
+}

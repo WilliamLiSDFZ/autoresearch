@@ -1,0 +1,10 @@
+{
+  "title": "BiLSTM Toxicity Classifier with Identity Auxiliary Tasks",
+  "summary": "The solution lowercases comments, splits words and punctuation, truncates to 220 tokens, and builds a training-only vocabulary of up to 200,000 tokens occurring at least twice. It encodes sequences with padding and uses length-bucketed shuffled batches. A randomly initialized 300-dimensional embedding with spatial dropout feeds two 128-unit bidirectional LSTMs. Mean, masked max, and learned attention pooling are concatenated, passed through two residual ReLU dense layers, and used for toxicity and identity-label logits. Training uses weighted binary cross-entropy for toxicity, increasing weights for identity-subgroup and subgroup/label combinations, plus masked auxiliary BCE over identity columns. Adam uses mixed-precision scaling, gradient clipping, and exponential learning-rate decay over four epochs. Validation inference applies sigmoid probabilities; the final prediction averages probabilities from epochs 1 onward.",
+  "evidence": [
+    "SOURCE:38-65",
+    "SOURCE:92-170",
+    "SOURCE:188-234",
+    "SOURCE:251-357"
+  ]
+}

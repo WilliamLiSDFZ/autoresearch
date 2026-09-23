@@ -1,0 +1,12 @@
+{
+  "title": "Transformer Toxicity and Identity Classifier",
+  "summary": "A bidirectional transformer encoder is trained from scratch to predict a comment toxicity target and auxiliary identity labels. Comments are tokenized with the fixed GPT-2 BPE vocabulary, head-truncated to 256 tokens, while empty comments receive the end-of-text token. Six pre-layer-normalized transformer blocks use eight-head self-attention, GELU MLPs, residual dropout, learned token and position embeddings, and padding-aware attention. Final valid-token mean and max pooled embeddings are concatenated for a linear multi-label head. Training uses shuffled length-bucketed batches, weighted binary cross-entropy logits loss: target loss weight 1 and total auxiliary loss weight 0.5 distributed across identities. AdamW uses decoupled weight decay except for positional and low-dimensional parameters, linear warmup then cosine learning-rate decay, mixed precision, and gradient clipping. Inference length-sorts validation examples, applies sigmoid to the target logit, and saves final-epoch predictions and weights.",
+  "evidence": [
+    "SOURCE:2-4",
+    "SOURCE:30-46",
+    "SOURCE:55-126",
+    "SOURCE:132-189",
+    "SOURCE:209-238",
+    "SOURCE:244-300"
+  ]
+}

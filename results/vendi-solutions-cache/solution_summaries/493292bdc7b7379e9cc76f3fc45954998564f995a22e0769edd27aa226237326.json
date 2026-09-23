@@ -1,0 +1,11 @@
+{
+  "title": "Bias-weighted BiLSTM toxicity ensemble",
+  "summary": "Comments are lowercased and regex-tokenized; a vocabulary is built from training tokens occurring at least five times, capped at 200,000 entries. Sequences retain known tokens only, are truncated to 220 tokens, and use an unknown token for empty sequences. The model learns 300-dimensional embeddings with spatial embedding-channel dropout, followed by two stacked bidirectional LSTMs. Masked max and mean pooling are concatenated, processed by two residual ReLU linear transforms, and mapped to one toxicity logit. Training uses weighted binary cross-entropy, normalized by mean sample weight. Weights upweight comments mentioning an identity and additionally toxic non-identity and non-toxic identity examples, using thresholded target and identity labels. Length-bucketed batches reduce padding. Each member uses Adam, mixed-precision gradient scaling, optional clipping, and exponential learning-rate decay after each epoch. Validation probabilities average the final three epochs per member, then average 24 independently seeded members.",
+  "evidence": [
+    "SOURCE:30-56",
+    "SOURCE:75-156",
+    "SOURCE:174-208",
+    "SOURCE:227-285",
+    "SOURCE:299-330"
+  ]
+}

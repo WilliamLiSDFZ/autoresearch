@@ -1,0 +1,11 @@
+{
+  "title": "Transformer toxicity classifier with identity ranking loss",
+  "summary": "A bidirectional Transformer encoder is trained from scratch for toxicity prediction and auxiliary identity prediction. Comments are tokenized with the fixed GPT-2 BPE vocabulary, truncated to 256 tokens, padded per batch, and supplied with a validity mask. Token and positional embeddings pass through six pre-normalized multi-head self-attention/MLP blocks; masked mean and max pooling are concatenated for a linear output head producing one toxicity logit and identity logits. Training uses soft-target binary cross-entropy, with the identity losses collectively weighted by 0.5. A further weighted pairwise logistic ranking loss samples 16 examples from each of four identity/toxicity pools for a rotating identity and encourages subgroup, background-positive/subgroup-negative, and subgroup-positive/background-negative orderings. Length-bucketed shuffled batches are optimized for three epochs with AdamW, linear warmup then cosine decay, mixed precision, and gradient clipping. Inference length-sorts validation examples and returns sigmoid toxicity probabilities from the final epoch model.",
+  "evidence": [
+    "SOURCE:30-48",
+    "SOURCE:57-128",
+    "SOURCE:134-191",
+    "SOURCE:211-258",
+    "SOURCE:264-326"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "title": "Routed Residual BiLSTM Toxicity Classifier",
+  "summary": "Comments are lowercased, regex-tokenized, truncated to 256 tokens, and encoded with a frequency-capped training vocabulary with dedicated padding and unknown IDs. A two-layer bidirectional LSTM with embedding dropout produces masked max and mean pooled features. Residual ReLU dense layers feed toxicity and identity-logit heads. The model trains with weighted soft-target toxicity BCE and auxiliary identity BCE; sample weights include base, identity, toxic-background, and non-toxic-subgroup terms. Optimization uses Adam, mixed precision with gradient scaling, gradient clipping, length-bucketed shuffled batches, learning-rate decay with a floor, and scheduled weight averaging. A later stage freezes the encoder and learns zero-initialized global and identity-bin residual ranking heads with a routing gate. It samples subgroup/background positive-negative cells and uses pairwise softplus ranking, worst-cell bias-family weighting, overall ranking, and gate load balancing. Inference can blend base and routed residual logits sigmoidally.",
+  "evidence": [
+    "SOURCE:31-70",
+    "SOURCE:101-192",
+    "SOURCE:204-245",
+    "SOURCE:252-290",
+    "SOURCE:331-378",
+    "SOURCE:389-542",
+    "SOURCE:551-579"
+  ]
+}

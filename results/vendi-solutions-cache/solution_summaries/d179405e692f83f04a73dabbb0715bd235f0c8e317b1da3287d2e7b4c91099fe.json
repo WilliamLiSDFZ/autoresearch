@@ -1,0 +1,12 @@
+{
+  "title": "Bidirectional LSTM Toxicity Classifier",
+  "summary": "A CUDA word-level toxicity classifier tokenizes lowercased comments with a regex, truncates to 220 tokens, and builds a training-derived vocabulary retaining terms with frequency at least five, capped at 200,000; other terms map to unknown. It uses learned 300-dimensional embeddings with spatial dropout, two stacked 256-unit bidirectional LSTMs, masked max and mean pooling, two ReLU dense layers with a residual connection, and sigmoid logits for toxicity plus identity auxiliary labels. Training uses length-bucketed shuffled batches. Toxicity binary cross-entropy is sample-weighted to emphasize identity-mention rows and selected toxic/non-toxic subgroup cases, normalized by mean weight; unweighted identity-label BCE is added equally. Adam runs for four epochs with mixed-precision gradient scaling, norm clipping at 1.0, and exponential per-epoch learning-rate decay. Validation inference pads batches, applies a sigmoid to the toxicity logit, and evaluates continuous probabilities.",
+  "evidence": [
+    "SOURCE:28-54",
+    "SOURCE:72-135",
+    "SOURCE:163-172",
+    "SOURCE:176-215",
+    "SOURCE:218-253",
+    "SOURCE:266-328"
+  ]
+}

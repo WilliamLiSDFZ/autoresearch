@@ -1,0 +1,11 @@
+{
+  "title": "BiLSTM Toxicity Classifier with AUC Refit",
+  "summary": "The method trains a word-level toxicity classifier on the provided training split and predicts validation probabilities. Text is lowercased, regex-tokenized, truncated to 200 tokens, and mapped to a training-derived vocabulary retaining tokens with count at least two, capped at 120,000; other tokens map to unknown. A 192-dimensional embedding with spatial dropout feeds two bidirectional LSTMs. Masked mean and max pooling are concatenated and passed through two residual ReLU dense layers and a scalar logit head. Initial training uses soft target vote fractions with BCE-with-logits, Adam, linearly decayed learning rate, mixed precision, gradient clipping, and shuffled length-bucketed batches. It then refits the network using sampled identity/toxicity strata and random rows, maximizing a smooth confidence-weighted pairwise AUC surrogate combining overall, subgroup, BPSN, and BNSP terms, with a BCE anchor. Inference applies sigmoid to logits in length-bucketed batches.",
+  "evidence": [
+    "SOURCE:24-53",
+    "SOURCE:66-133",
+    "SOURCE:150-190",
+    "SOURCE:193-308",
+    "SOURCE:320-388"
+  ]
+}

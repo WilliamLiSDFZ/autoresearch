@@ -1,0 +1,13 @@
+{
+  "title": "Word-Level Bidirectional LSTM Toxicity Classifier",
+  "summary": "The solution lowercases comment text and tokenizes words, apostrophe-containing strings, and punctuation. It truncates comments to 192 tokens, builds a training-only vocabulary from tokens occurring at least three times (capped at 200,000), and maps padding and unknown tokens to fixed IDs. A trainable 256-dimensional embedding feeds two stacked bidirectional LSTM layers with 128 hidden units per direction. Masked mean and max sequence pooling are concatenated, passed through two residual ReLU dense layers, and mapped to one toxicity logit. Embedding-feature spatial dropout is applied during training. The model minimizes unweighted binary cross-entropy with logits against fractional targets. It trains for two epochs using shuffled, length-bucketed batches, AdamW, fp16 autocast with gradient scaling, gradient-norm clipping, and linear warmup followed by cosine learning-rate decay. Validation sequences are length-sorted for batching; sigmoid logits are restored to prepared row order and saved for fixed evaluation.",
+  "evidence": [
+    "SOURCE:30-53",
+    "SOURCE:81-158",
+    "SOURCE:161-170",
+    "SOURCE:177-212",
+    "SOURCE:219-233",
+    "SOURCE:240-288",
+    "SOURCE:293-319"
+  ]
+}

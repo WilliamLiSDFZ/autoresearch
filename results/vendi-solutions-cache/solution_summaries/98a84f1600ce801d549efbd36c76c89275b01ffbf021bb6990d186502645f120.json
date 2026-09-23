@@ -1,0 +1,13 @@
+{
+  "title": "Bias-weighted BiLSTM toxicity ensemble",
+  "summary": "The solution trains three independently seeded CUDA word-level toxicity classifiers and averages their validation probabilities. Text is lowercased, regex-tokenized, truncated to 220 tokens, and represented with a vocabulary built from training text; tokens below frequency five or beyond a 200,000-type cap map to unknown, while batches are length-bucketed and padded. Each model uses learned embeddings with spatial dropout, two bidirectional LSTM layers, masked max and mean pooling, and residual ReLU dense layers. A shared output head predicts toxicity plus binary identity attributes. Training minimizes weighted binary cross-entropy for toxicity, normalized by inverse mean sample weight, plus unweighted auxiliary identity BCE. Identity-mentioning examples are up-weighted, with further weight for non-identity toxic and identity non-toxic cases. Adam, mixed-precision gradient scaling, gradient clipping, and exponential per-epoch learning-rate decay are used for four epochs. Inference applies sigmoid to the toxicity logit and averages ensemble members.",
+  "evidence": [
+    "SOURCE:28-55",
+    "SOURCE:73-136",
+    "SOURCE:164-173",
+    "SOURCE:191-216",
+    "SOURCE:220-254",
+    "SOURCE:258-303",
+    "SOURCE:319-342"
+  ]
+}

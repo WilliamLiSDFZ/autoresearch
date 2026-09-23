@@ -1,0 +1,12 @@
+{
+  "title": "Target-Conditioned BiLSTM Toxicity Classifier",
+  "summary": "The solution lowercases comments and tokenizes words, apostrophized terms, and punctuation. It truncates to 192 tokens and builds a training-only vocabulary from tokens occurring at least three times; padding and unknown IDs are reserved. A two-layer bidirectional LSTM processes learned 256-dimensional embeddings with spatial embedding dropout. Masked mean and max pooling are concatenated, passed through two residual ReLU dense layers, and mapped to one toxicity logit. Training uses fractional-target binary cross-entropy plus a penalty that equalizes mean predicted probabilities between identity-present and identity-absent examples within each hard toxicity class. Each epoch shuffles rows, length-sorts within buckets, then shuffles batches. AdamW uses linear warmup followed by cosine decay, fp16 autocasting, gradient scaling, and global norm clipping. Validation batches are length-sorted; sigmoid probabilities are restored to prepared validation-row order and evaluated.",
+  "evidence": [
+    "SOURCE:30-56",
+    "SOURCE:84-150",
+    "SOURCE:153-174",
+    "SOURCE:181-216",
+    "SOURCE:223-237",
+    "SOURCE:249-322"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "title": "Bidirectional Transformer Toxicity Classifier",
+  "summary": "The solution tokenizes comment text with the fixed GPT-2 BPE vocabulary, replaces empty texts with the end-of-text token, and head-truncates sequences to 256 tokens. A 6-layer bidirectional Transformer encoder uses token and learned positional embeddings, 8-head self-attention with padding masks, pre-layer normalization, GELU MLP blocks, dropout, and mean-plus-max pooling over valid tokens. A linear head produces a target logit and identity logits. Training uses soft-target binary cross-entropy; identity losses are present but have zero weight under the configured auxiliary weight. Batches are shuffled then length-sorted within chunks to reduce padding. AdamW uses selective weight decay, linear warmup followed by cosine learning-rate decay, mixed precision, and gradient clipping. At inference, length-sorted validation batches produce sigmoid probabilities from the target logit; final-epoch predictions and model weights are saved.",
+  "evidence": [
+    "SOURCE:30-46",
+    "SOURCE:55-126",
+    "SOURCE:132-173",
+    "SOURCE:209-238",
+    "SOURCE:249-289"
+  ]
+}

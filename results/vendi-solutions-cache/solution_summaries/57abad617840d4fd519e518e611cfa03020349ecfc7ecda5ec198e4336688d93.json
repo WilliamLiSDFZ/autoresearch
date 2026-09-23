@@ -1,0 +1,12 @@
+{
+  "title": "Transformer Toxicity and Identity Classifier",
+  "summary": "A bidirectional Transformer encoder is trained from scratch on GPT-2 BPE tokenized comments, truncated to 256 tokens. It uses token and positional embeddings, six pre-layer-normalized self-attention/MLP blocks, padding-aware attention, and concatenated masked mean and max pooling. A linear head predicts a toxicity target plus one auxiliary logit per identity label. Text tokens are cached in flattened arrays; batches are shuffled, length-sorted within chunks, dynamically padded, and then shuffled again. Training uses four epochs of mixed-precision AdamW with decoupled weight decay excluding positional embeddings and low-dimensional parameters, linear learning-rate warmup followed by cosine decay, and gradient-norm clipping. The loss is per-output BCE-with-logits, averaged over examples and weighted as 1 for toxicity and total weight 0.5 distributed across identity outputs. Inference length-sorts validation examples, batches them, and returns sigmoid probabilities from the toxicity logit.",
+  "evidence": [
+    "SOURCE:2-4",
+    "SOURCE:30-46",
+    "SOURCE:55-126",
+    "SOURCE:132-189",
+    "SOURCE:209-238",
+    "SOURCE:244-277"
+  ]
+}

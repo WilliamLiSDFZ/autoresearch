@@ -1,0 +1,10 @@
+{
+  "title": "Length-Bucketed BiLSTM Toxicity Classifier",
+  "summary": "The solution lowercases and regex-tokenizes comments, builds a training-split vocabulary from tokens occurring at least five times (capped at 200,000), maps unknown or empty texts to a fallback token, and truncates sequences to 220 tokens. It trains a two-layer bidirectional LSTM with 300-dimensional learned embeddings, embedding-channel spatial dropout, masked max and average pooling, residual ReLU projections, and a sigmoid toxicity output. Training batches group similarly sized sequences and are shuffled at the batch level. The primary loss is weighted binary cross-entropy: identity-containing comments and toxic/non-identity or non-toxic/identity cases receive increased weights, normalized by mean weight. Optional masked identity auxiliary outputs exist but are disabled. Adam optimizes for seven epochs with CUDA mixed precision, gradient scaling, optional disabled clipping, and exponential learning-rate decay after each epoch. Validation inference uses length buckets, sigmoid probabilities, and the primary output.",
+  "evidence": [
+    "SOURCE:31-49",
+    "SOURCE:68-149",
+    "SOURCE:153-201",
+    "SOURCE:245-307"
+  ]
+}

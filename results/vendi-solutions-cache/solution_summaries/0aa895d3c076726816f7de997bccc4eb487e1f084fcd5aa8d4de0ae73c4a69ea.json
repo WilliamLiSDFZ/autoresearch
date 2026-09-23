@@ -1,0 +1,8 @@
+{
+  "title": "BiLSTM Toxicity Classifier with Residual Head",
+  "summary": "The implementation selects saved best validation predictions, evaluates them, and stores predictions, model weights, metrics, and configuration. Its recorded architecture is a word-level two-layer bidirectional LSTM with max and average pooling and a dense residual head. Configuration indicates lowercasing, bounded vocabulary and sequence length, embedding dropout, auxiliary identity targets, soft targets, and weighted sampling emphasizing identity, toxic-background, and non-toxic subgroup examples. Training uses learning-rate decay, gradient clipping, fp16 autocast with gradient scaling, and optional stochastic weight averaging. A residual head is trained with Adam using capped positive and negative cell pools; caps and pair mixes are swept and evaluated. The final score uses the selected prediction source.",
+  "evidence": [
+    "SOURCE:553-560",
+    "SOURCE:563-601"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "title": "BiLSTM Toxicity Classifier with Residual Ranking Refinement",
+  "summary": "Comments are lowercased and tokenized into word and punctuation tokens, truncated to 256 tokens, and mapped through a training-derived frequency-pruned vocabulary with padding and unknown symbols. Length-aware shuffled buckets form padded batches. A word-vector-dropout embedding feeds two bidirectional LSTM layers; masked max and mean pooled features are concatenated and transformed by additive ReLU dense layers to predict toxicity and identity logits. Adam training uses mixed-precision autocasting, gradient scaling, gradient clipping, and a decayed learning rate bounded by a floor. The loss combines weighted binary cross-entropy on soft toxicity targets with auxiliary identity BCE. Checkpoint predictions and late stochastic weight averages are validated and the selected weights retained. The base network is then frozen, and zero-initialized linear residual heads are fitted to pooled features with pairwise softplus ranking losses over subgroup, background/subgroup cross-cells, and overall examples. Residual blend weights are validated to select final probabilities.",
+  "evidence": [
+    "SOURCE:31-70",
+    "SOURCE:101-192",
+    "SOURCE:204-245",
+    "SOURCE:252-290",
+    "SOURCE:331-378",
+    "SOURCE:385-530",
+    "SOURCE:533-540",
+    "SOURCE:554-581"
+  ]
+}

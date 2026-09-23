@@ -1,0 +1,12 @@
+{
+  "title": "Bidirectional LSTM Toxicity Classifier with Ranking Residuals",
+  "summary": "The solution tokenizes lowercased comments into up to 256 word/punctuation tokens, builds a frequency-pruned training-only vocabulary, maps rare/unseen tokens to an unknown ID, and batches padded sequences by length. A learned embedding with word-vector dropout feeds two bidirectional LSTM layers. Masked max and mean pooling are concatenated, transformed by residual dense layers, and used for a toxicity logit and identity-label auxiliary logits. Training uses Adam, mixed precision, gradient clipping, decayed learning rate with a floor, weighted BCE on soft toxicity targets, and auxiliary identity BCE. Late model iterates are averaged and validation probabilities are produced with a sigmoid. A second configured stage freezes the selected encoder and initializes global and identity-bin-specific linear residual ranking heads. It samples subgroup/background positive-negative cells and optimizes pairwise ordering losses, optionally blended with a soft up/down/tie loss derived from fractional labels; bias-family cell losses emphasize weaker cells.",
+  "evidence": [
+    "SOURCE:33-76",
+    "SOURCE:107-198",
+    "SOURCE:210-267",
+    "SOURCE:270-296",
+    "SOURCE:337-384",
+    "SOURCE:391-552"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "title": "Bidirectional LSTM toxicity classifier",
+  "summary": "The method lowercases and regex-tokenizes comments, truncates them to 220 tokens, builds a training-derived vocabulary from tokens occurring at least five times (capped at 200,000), maps pruned or unseen tokens to unknown, and pads batches dynamically. A learned 256-dimensional embedding with spatial dropout feeds two stacked bidirectional LSTMs (128 units per direction). Masked max and mean temporal pooling are concatenated, then passed through a 512-unit ReLU layer and a residual 512-unit ReLU layer to predict toxicity plus identity-label auxiliary logits. Training uses four epochs of shuffled length-bucketed batches. Toxicity BCE is sample-weighted to emphasize identity mentions, non-identity toxic rows, and identity-associated non-toxic rows; unweighted auxiliary BCE is added. Adam, mixed-precision gradient scaling, gradient clipping, and epoch-wise exponential learning-rate decay optimize the model. Inference applies sigmoid to the toxicity logit on length-bucketed validation batches.",
+  "evidence": [
+    "SOURCE:28-53",
+    "SOURCE:71-134",
+    "SOURCE:162-171",
+    "SOURCE:175-214",
+    "SOURCE:218-252",
+    "SOURCE:274-324"
+  ]
+}

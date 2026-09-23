@@ -1,0 +1,13 @@
+{
+  "title": "Word2Vec-Initialized Recurrent Toxicity Classifier",
+  "summary": "The solution tokenizes lowercased comments with a regex, builds a 120k-token vocabulary from training text, maps unknown tokens to a dedicated ID, and head-truncates sequences to 220 tokens. It pretrains 300-dimensional embeddings on training sequences using skip-gram negative sampling with frequency-based subsampling. Each classifier applies embedding spatial dropout, a bidirectional LSTM, then a bidirectional GRU or, for alternating ensemble members, LSTM. It concatenates masked max and mean pools from both recurrent layers with attention pooling from the second layer, applies a residual dense ReLU/dropout block, and predicts toxicity plus identity-label auxiliary logits. Toxicity BCE is weighted by identity presence and toxicity/identity subgroup status; auxiliary identity BCE is added equally. Seven seeded models train for four epochs with length-bucketed shuffled batches, AdamW, epochwise learning-rate decay, mixed precision, and gradient clipping. Inference averages predictions from the final two epochs per model, then across models.",
+  "evidence": [
+    "SOURCE:31-59",
+    "SOURCE:68-115",
+    "SOURCE:122-175",
+    "SOURCE:194-221",
+    "SOURCE:228-241",
+    "SOURCE:283-289",
+    "SOURCE:301-359"
+  ]
+}

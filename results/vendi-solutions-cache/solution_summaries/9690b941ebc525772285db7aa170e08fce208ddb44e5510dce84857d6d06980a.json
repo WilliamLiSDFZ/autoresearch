@@ -1,0 +1,12 @@
+{
+  "title": "Weighted BiLSTM Toxicity Classifier",
+  "summary": "A CUDA-trained word-level toxicity classifier tokenizes lowercased comments with a regex, truncates to 220 tokens, and constructs a training-derived vocabulary using tokens with frequency at least five, capped at 200,000; unseen or pruned tokens map to an unknown ID. It uses 256-dimensional learned embeddings with spatial embedding dropout, two 128-unit bidirectional LSTM layers, masked max and mean pooling, two ReLU dense layers with a residual connection, and output logits for toxicity plus identity attributes. Training uses length-bucketed shuffled batches for two epochs. The primary binary cross-entropy loss is sample-weighted to emphasize identity mentions, toxic non-identity comments, and non-toxic identity comments, normalized by inverse mean weight; unweighted auxiliary BCE is added for identity labels. Adam, mixed-precision gradient scaling, gradient clipping at 1.0, and exponential learning-rate decay are used. Inference batches by length and returns sigmoid toxicity probabilities.",
+  "evidence": [
+    "SOURCE:28-53",
+    "SOURCE:71-134",
+    "SOURCE:162-171",
+    "SOURCE:175-214",
+    "SOURCE:218-252",
+    "SOURCE:265-324"
+  ]
+}

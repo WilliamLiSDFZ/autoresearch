@@ -1,0 +1,12 @@
+{
+  "title": "Bidirectional LSTM Toxicity Classifier with Routed Ranking Residual",
+  "summary": "Comments are lowercased, regex-tokenized, head-truncated to 256 tokens, and encoded with a training-only frequency-capped vocabulary; padding and unknown tokens use dedicated IDs. A two-layer bidirectional LSTM encodes embeddings with word-vector dropout. Masked max and mean pooling are concatenated, passed through two residual ReLU dense transforms, and feed toxicity and identity-logit heads. Training uses Adam, mixed precision, gradient clipping, length-bucketed shuffled batches, decayed learning rate, weighted soft-target toxicity BCE, and auxiliary identity BCE. Late model iterates are weight-averaged and validation selects the best epoch or average. A second stage freezes the encoder and fits zero-initialized global and identity-bin specialist residual heads plus a soft routing gate. It samples subgroup/background positive-negative cells and optimizes pairwise softplus ranking losses, worst-cell-weighted bias families, overall ranking, and gate load balancing. Validation selects a sigmoid blend of base and routed residual logits.",
+  "evidence": [
+    "SOURCE:31-70",
+    "SOURCE:101-192",
+    "SOURCE:204-245",
+    "SOURCE:252-290",
+    "SOURCE:331-378",
+    "SOURCE:389-542"
+  ]
+}

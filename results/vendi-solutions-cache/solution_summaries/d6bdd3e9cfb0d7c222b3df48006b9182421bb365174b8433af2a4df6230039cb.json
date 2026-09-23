@@ -1,0 +1,12 @@
+{
+  "title": "Bias-Aware Transformer Toxicity Classifier",
+  "summary": "The solution lowercases and regex-tokenizes comments, builds a word vocabulary from training text only, maps rare or unseen words to UNK, pads and head-truncates sequences to 256 tokens, and length-buckets shuffled batches. A six-layer pre-layer-normalized Transformer encoder uses token and positional embeddings. Mean and masked-max pooling are concatenated for a GELU dense layer feeding a toxicity logit and sigmoid-trained identity auxiliary heads. Before supervised training, it performs masked-language-model pretraining on training comments: eligible tokens are selected with 15% probability and replaced by MASK, random tokens, or retained tokens; prediction uses an embedding-tied vocabulary-limited decoder. Fine-tuning minimizes bias-weighted toxicity BCE plus identity BCE on soft identity labels. Weights upweight identity-containing rows, non-identity positives, and identity negatives. AdamW, warmup-linear decay, mixed precision, and gradient clipping are used. Inference length-sorts examples and outputs sigmoid probabilities; epoch predictions are combined with exponentially increasing epoch weights.",
+  "evidence": [
+    "SOURCE:33-64",
+    "SOURCE:91-160",
+    "SOURCE:167-205",
+    "SOURCE:215-247",
+    "SOURCE:277-315",
+    "SOURCE:326-390"
+  ]
+}

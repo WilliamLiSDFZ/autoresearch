@@ -1,0 +1,12 @@
+{
+  "title": "Masked Auxiliary BiLSTM Toxicity Classifier",
+  "summary": "The solution tokenizes lowercased comments into word and punctuation tokens, truncates to 256 tokens, and builds a training-only vocabulary from tokens occurring at least twice, capped at 300,000 entries; other tokens map to unknown. A two-layer bidirectional LSTM encodes learned 128-dimensional embeddings with word-vector dropout. Masked max and mean pooling are concatenated and passed through two ReLU residual dense transforms to produce a toxicity logit and identity-attribute auxiliary logits. Training uses soft toxicity targets, weighted binary cross-entropy emphasizing identity and specified observed subgroup strata, plus a 0.5-weighted auxiliary BCE loss. Auxiliary labels are supervised only where identity annotations are observed. Batches are shuffled, length-bucketed, and padded. Adam optimization uses fp16 autocast, gradient scaling, norm clipping, and per-epoch exponential learning-rate decay. Validation runs length-sorted batches and outputs sigmoid toxicity probabilities.",
+  "evidence": [
+    "SOURCE:33-52",
+    "SOURCE:80-181",
+    "SOURCE:194-221",
+    "SOURCE:228-257",
+    "SOURCE:260-272",
+    "SOURCE:278-318"
+  ]
+}

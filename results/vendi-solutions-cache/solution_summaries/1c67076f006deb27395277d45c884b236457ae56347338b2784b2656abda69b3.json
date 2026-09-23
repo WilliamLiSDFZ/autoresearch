@@ -1,0 +1,12 @@
+{
+  "title": "Identity-Aware BiLSTM-GRU Toxicity Classifier",
+  "summary": "The solution tokenizes lowercased comments with a regex, builds a frequency vocabulary from training text only, maps unknown tokens to a reserved ID, and head-truncates or pads sequences to 220 tokens. A learned 300-dimensional embedding with channel-wise spatial dropout feeds a bidirectional LSTM followed by a bidirectional GRU. For outputs of both recurrent stages, masked max and length-normalized mean pooling are concatenated, processed by a residual ReLU/dropout dense block, and projected to one toxicity logit plus identity-label auxiliary logits. Training uses length-bucketed shuffled batches, AdamW, mixed-precision gradient scaling, gradient clipping, and epoch-wise multiplicative learning-rate decay. Main binary cross-entropy is mean-normalized and upweights identity-containing and identity/toxicity subgroup cases; auxiliary identity BCE is added equally. Validation inference sorts by length, applies sigmoid to toxicity logits, and averages predictions from the final two epochs.",
+  "evidence": [
+    "SOURCE:31-51",
+    "SOURCE:60-107",
+    "SOURCE:126-150",
+    "SOURCE:157-170",
+    "SOURCE:212-257",
+    "SOURCE:266-278"
+  ]
+}

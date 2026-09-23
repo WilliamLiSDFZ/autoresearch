@@ -1,0 +1,11 @@
+{
+  "title": "Adaptive Slice-Weighted BiLSTM Toxicity Classifier",
+  "summary": "The solution lowercases comments, tokenizes words/contractions and punctuation, truncates to 192 tokens, and builds a training-only vocabulary from tokens occurring at least three times; padding and unknown IDs are reserved. A train-from-scratch two-layer bidirectional LSTM uses 256-dimensional embeddings, embedding-feature dropout, masked mean and max pooling, two residual ReLU dense layers, and a scalar toxicity logit. It trains for two epochs with fractional-target binary cross-entropy. An auxiliary logistic ranking loss samples toxic/non-toxic pairs for subgroup, BPSN, and BNSP identity slices. Per-slice pair losses update exponential-moving-average losses and capped, normalized exponentiated-gradient slice weights, which weight the auxiliary loss. AdamW uses warmup followed by cosine learning-rate decay, fp16 autocast with gradient scaling, and gradient-norm clipping. Length-bucketed shuffled batches reduce padding. Validation runs in length-sorted batches, applies sigmoid probabilities, restores prepared row order, and evaluates them with the supplied metric.",
+  "evidence": [
+    "SOURCE:30-61",
+    "SOURCE:89-170",
+    "SOURCE:189-245",
+    "SOURCE:252-307",
+    "SOURCE:328-342"
+  ]
+}

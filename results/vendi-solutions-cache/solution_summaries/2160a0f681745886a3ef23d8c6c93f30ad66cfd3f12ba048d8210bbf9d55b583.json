@@ -1,0 +1,13 @@
+{
+  "title": "Weighted BiLSTM Toxicity Ensemble",
+  "summary": "A five-member GPU ensemble classifies comment toxicity. Text is lowercased and regex-tokenized, truncated to 220 tokens, and mapped to a training-built vocabulary retaining tokens with frequency at least five, capped at 200,000; other tokens map to unknown and empty comments receive a placeholder. Each model uses embedding-channel spatial dropout, two bidirectional LSTM layers, masked max and mean pooling, two ReLU dense layers with a residual connection, and logits for toxicity plus identity attributes. Training uses length-bucketed shuffled batches. The toxicity binary cross-entropy is sample-weighted to emphasize identity mentions and specified toxic/non-toxic identity-background cases, normalized by inverse mean weight; unweighted auxiliary identity BCE is added. Adam, mixed-precision gradient scaling, gradient clipping, and per-epoch exponential learning-rate decay optimize for four epochs. At inference, each model produces sigmoid toxicity probabilities on padded length-bucketed batches; the final prediction is their arithmetic mean.",
+  "evidence": [
+    "SOURCE:28-55",
+    "SOURCE:73-136",
+    "SOURCE:164-173",
+    "SOURCE:177-216",
+    "SOURCE:220-254",
+    "SOURCE:258-303",
+    "SOURCE:319-342"
+  ]
+}

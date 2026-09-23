@@ -1,0 +1,11 @@
+{
+  "title": "Character-aware BiLSTM toxicity classifier",
+  "summary": "The solution tokenizes lowercased comments to 200 tokens, builds a training-only frequency-filtered vocabulary, maps unseen tokens to UNK, and batches length-sorted shuffled chunks. Its embedding combines learned word vectors with averages of hashed 3–5 character n-gram embeddings through a learned per-dimension gate. Spatial embedding dropout feeds two bidirectional LSTMs; masked average and max pooling are concatenated and passed through two residual ReLU dense layers and a scalar toxicity logit. It trains for three epochs on continuous toxicity targets using BCE-with-logits, Adam, linear learning-rate decay, mixed precision, and gradient clipping. A subsequent Adam refit samples identity/toxicity role strata plus random rows, maximizing a confidence-weighted smooth pairwise AUC composite over overall, subgroup, BPSN and BNSP terms, with a BCE anchor. Identity roles distinguish annotated non-members from unannotated rows. Inference applies sigmoid logits in evaluation batches and saves validation probabilities and model state.",
+  "evidence": [
+    "SOURCE:25-59",
+    "SOURCE:74-156",
+    "SOURCE:173-230",
+    "SOURCE:233-361",
+    "SOURCE:373-450"
+  ]
+}

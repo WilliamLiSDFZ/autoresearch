@@ -73,13 +73,17 @@ def identify_run(path, metadata, override):
     if not task and arm:
         match = re.fullmatch(r"run/\d{8}_\d{6}-(.+)-" + re.escape(arm), metadata.get("branch", ""))
         task = match.group(1) if match else ""
-    task_hash = metadata.get("task_file_sha256", "")
+    task_hash = metadata.get("task_file_sha256") or metadata.get("task_sha256", "")
+    if (metadata.get("task_file_sha256") and metadata.get("task_sha256")
+            and metadata["task_file_sha256"] != metadata["task_sha256"]):
+        raise ValueError("conflicting_task_hashes")
     task = task or ("task-" + task_hash[:12] if task_hash else "")
     study = override.get("study_id") or metadata.get("study_id") or re.sub(r"-pair-\d+$", "", pair)
     return {"run": path.name, "run_id": tag, "path": str(path), "task_id": task,
             "task_hash": task_hash, "study_id": study, "pair_id": pair, "arm": arm,
             "seed": metadata.get("initial_seed", metadata.get("seed", "")),
-            "gpu": metadata.get("gpu", ""), "start_commit": metadata.get("start_commit", metadata.get("base_commit", "")),
+            "gpu": metadata.get("gpu") or metadata.get("gpu_actual") or metadata.get("gpu_name", ""),
+            "start_commit": metadata.get("start_commit", metadata.get("base_commit", "")),
             "prepared_id": metadata.get("prepared_id", ""),
             "resources": metadata.get("resources", ""),
             "budget_seconds": metadata.get("budget_seconds", ""),
@@ -316,9 +320,11 @@ def plot_figures(pairs, effects, records, output):
             ys = [scores[arms[i]] for i in xs]
             color = plt.get_cmap("tab10")(index % 10)
             label = textwrap.fill(pair_id, 26) + (" *" if draw_flags[pair_id] else "")
+            if len(draws) > 3:
+                label += "\n" + " → ".join(f"{y:.6f}" for y in ys)
             ax.plot(xs, ys, marker="o", markersize=7, linewidth=1.8, alpha=0.85,
                     linestyle="--" if draw_flags[pair_id] else "-", color=color, label=label)
-            if len(draws) <= 8:
+            if len(draws) <= 3:
                 for x, y in zip(xs, ys):
                     ax.annotate(f"{y:.6f}", (x, y), xytext=(0, 10), textcoords="offset points",
                                 ha="center", fontsize=9, color=color)
@@ -332,7 +338,8 @@ def plot_figures(pairs, effects, records, output):
         ax.grid(axis="y", color="#e2e8f0", linewidth=0.8)
         ax.set_axisbelow(True)
         ax.legend(loc="upper left", bbox_to_anchor=(1.03, 1), frameon=False, fontsize=9,
-                  title=f"Pairs: {len(draws)}" + ("  (* flagged)" if flagged else ""))
+                  title=f"Pairs: {len(draws)}" + ("  (* flagged)" if flagged else "")
+                        + ("\nScores follow axis order" if len(draws) > 3 else ""))
         save(fig, "paired")
 
         stats = [s for s in effects if s["cohort"] == cohort]
@@ -432,6 +439,11 @@ def main(argv=None):
                                    "reference": args.reference, "contrasts": contrasts,
                                    "n_runs": len(records), "n_eligible": eligible, "charts": charts}, indent=2) + "\n")
     print(f"Runs: {len(records)}; eligible: {eligible}; excluded: {len(records) - eligible}; matched contrasts: {len(pairs)}")
+    if issues:
+        print(f"Pairing issues: {len(issues)} (these runs/contrasts are not plotted):")
+        for issue in issues:
+            print(f"  {issue.get('pair_id') or issue.get('run')}: {issue['reason']}")
+        print("See pair_issues.csv; use --manifest to explicitly identify pairs or exclude interrupted attempts.")
     for stat in effects:
         print(f"  {stat['study_id']}: {stat['treatment']} vs {stat['reference']}, signed effect = {stat['mean_effect']:+.6f} (n={stat['n_pairs']})")
     print(f"Output: {args.out}")

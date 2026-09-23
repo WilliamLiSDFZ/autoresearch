@@ -1,0 +1,13 @@
+{
+  "title": "Weighted BiLSTM Toxicity Ensemble",
+  "summary": "The solution tokenizes lowercased comments with a regex, truncates to 220 tokens, and builds a training-derived vocabulary using terms with frequency at least five, capped at 200,000; other terms map to unknown. It trains five GPU BiLSTM classifiers from scratch, with 128 or 256 hidden units per member. Each model uses embedding spatial dropout, two stacked bidirectional LSTMs, masked max and mean pooling, two ReLU dense layers with a residual connection, and logits for toxicity plus identity attributes. The loss combines weighted toxicity binary cross-entropy and unweighted auxiliary identity BCE. Rows mentioning an identity are up-weighted, with additional weight for toxic non-identity and non-toxic identity rows; target loss is normalized by mean weight. Batches are shuffled and length-bucketed. Adam, mixed-precision gradient scaling, gradient clipping, and per-epoch exponential learning-rate decay are used for four epochs. Inference averages sigmoid toxicity probabilities across members.",
+  "evidence": [
+    "SOURCE:28-56",
+    "SOURCE:74-137",
+    "SOURCE:165-174",
+    "SOURCE:178-218",
+    "SOURCE:222-256",
+    "SOURCE:260-305",
+    "SOURCE:317-346"
+  ]
+}

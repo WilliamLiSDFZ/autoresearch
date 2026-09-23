@@ -1,0 +1,7 @@
+{
+  "title": "Mixed-Precision Model Training with SWA and Residual Refinement",
+  "summary": "The implementation records a model trained with fp16 autocasting and gradient scaling. Its configuration includes a loss weight, a learning-rate floor, validation scores by epoch, and a selected weight source. It supports stochastic weight averaging beginning at a configured epoch and applied at a fixed interval, with separate SWA validation scores. A residual refinement stage is parameterized by its number of optimization steps, learning rate, per-cell and background components, temperature, caps, heads, bin boost, and beta values; its status, selected beta, and validation scores are logged. The saved artifact records parameter count, GPU name, timing, peak VRAM, validation score, overall AUC, and power-mean metrics.",
+  "evidence": [
+    "SOURCE:554-581"
+  ]
+}

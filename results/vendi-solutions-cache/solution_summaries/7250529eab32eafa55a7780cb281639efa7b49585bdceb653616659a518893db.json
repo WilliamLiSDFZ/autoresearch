@@ -1,0 +1,7 @@
+{
+  "title": "BiLSTM Toxicity Classifier",
+  "summary": "The implementation saves a word-level two-layer bidirectional LSTM classifier with max and average pooling and a dense residual prediction head. Configuration indicates lowercasing, sequence-length truncation, minimum token counts, a capped vocabulary, soft targets, and auxiliary identity targets. Training uses sample weights combining a 0.25 base weight with identity, toxic-background, and non-toxic-subgroup components. It uses fp16 autocast with gradient scaling, gradient clipping, learning-rate decay and a floor, plus scheduled stochastic weight averaging. The system records validation and SWA scores and may apply a residual correction mechanism with configurable steps, learning rate, per-cell/background settings, temperature, heads, bin boost, betas, and gate balancing. It serializes model parameters and vocabulary size, metrics, and configuration.",
+  "evidence": [
+    "SOURCE:551-579"
+  ]
+}

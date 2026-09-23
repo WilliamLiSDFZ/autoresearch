@@ -58,6 +58,20 @@ uv run --script analyze_runs.py --manifest comparisons.csv
 
 `run` 必须是实际下载目录名；只需列出要覆盖的 run，空单元格保留自动识别值，未知目录名会报错。CSV 不允许修改分数、指标方向或数据身份。
 
+### 当前 Jigsaw 重跑结果
+
+2026-09-23 下载目录同时包含 pair004–006 的中断尝试和完整重跑。旧尝试即使中途失败，也可能已有有效 trial；因此仅过滤无结果 run 不足以消除重复 arm。脚本会在终端打印未能配对的编号和原因，仍然不会自动按最高分或最新下载时间选择。
+
+本仓库的 `jigsaw_comparisons.csv` 明确排除五个已有成绩但中断的旧尝试；另外两个无合法 completed 结果的旧尝试仍由原有规则排除。选择依据是收尾报告、故障记录和先前确认的 Pod 中断；006 最早的 baseline 只标记为中断重跑，不推断为节点故障。原始文件和被排除 run 的 trial 清单均保留。
+
+按本次分析要求，pair001–006 保留同一个 `jubias` study，六对合并到原有 paired/effect 图。001–003 与 004–006 的 analogy 实现版本不同（后者加入实验历史和引用 warning），合并结果是跨版本的描述性比较。运行：
+
+```bash
+uv run --script analyze_runs.py --manifest jigsaw_comparisons.csv
+```
+
+后续新增重跑时，在清单中明确记录旧尝试的排除理由；更换输入目录时使用对应清单。脚本兼容 `task_file_sha256` / `task_sha256`，二者同时存在但不一致时拒绝该 run；GPU 依次读取 `gpu`、`gpu_actual`、`gpu_name`。这里只兼容身份字段，不改分数或放宽 artifact hash 校验。
+
 配对内要求 prepared ID、任务内容 hash、评价器 hash、指标版本、优化方向和验证行数一致。不同 study、任务、任务内容、评价器、指标版本或方向分别出图，不混合平均。**同一 study 下，不同独立 pair 可以使用不同 prepared split/seed**，但每对内部必须匹配；如果它们属于不同方案，设置不同 `study_id`，即使任务名称相同也不会混在一起。
 
 GPU、起始 commit、初始 seed、资源、环境 lock、预算或主 agent 模型不一致/缺失会列为可比性提醒，保留描述性图表。当前记录缺少结构化的 `budget_seconds` 和 `agent_model`；脚本不会从 six-hour Job 上限推断实际运行了六小时。提醒不是完整的实验合规审计。若要排除某轮，用 CSV 的 `exclude_reason` 明确记录理由。

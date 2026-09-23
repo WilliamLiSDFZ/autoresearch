@@ -1,0 +1,12 @@
+{
+  "title": "Dual-specialist BiLSTM toxicity classifier",
+  "summary": "The solution lowercases comments, tokenizes words, contractions and punctuation, truncates to 192 tokens, and builds a training-only vocabulary with padding and unknown tokens. A learned embedding feeds two stacked bidirectional LSTMs. Masked mean and max pooling are concatenated, passed through two residual ReLU linear layers, and mapped to one toxicity logit. It trains a plain specialist with fractional-target binary cross-entropy. A corrective specialist is warm-started from it and minimizes a conditional identity-dependence penalty: within each hard toxicity class, it penalizes squared differences between mean predicted probabilities for identity-present and identity-absent examples. Its objective combines this penalty with BCE weighted by a nonnegative dual multiplier, updated upward from per-batch BCE excess over the plain model plus slack. Training uses shuffled length-bucketed batches, AdamW, warmup-cosine learning rates, fp16 scaling, and gradient clipping. A held-out training subset selects a grid-searched logit blend; sigmoid-transformed blended logits provide validation probabilities.",
+  "evidence": [
+    "SOURCE:30-66",
+    "SOURCE:94-172",
+    "SOURCE:191-226",
+    "SOURCE:236-254",
+    "SOURCE:257-341",
+    "SOURCE:344-404"
+  ]
+}

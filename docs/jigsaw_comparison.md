@@ -134,6 +134,8 @@ kubectl --context nautilus -n ecepxie apply \
 
 三对 Job 位于 `k8s/job-jigsaw-pair{004,005,006}-{baseline,analogy}.yaml`，沿用 pair003 的六小时上限、单 GPU、8 CPU、32Gi 内存、共享只读 venv 和兼容 GPU 调度规则。Job 名、pair labels、`RUN_TAG` 前缀及各自的 home 子目录均已独立；worktree 继续由 Pod UID 区分。
 
+2026-09-22，pair004/005 的四个 Pod 同时在 `k8s-haosu-22.sdsc.optiputer.net` 遭遇 `NodeNotReady`、GPU `UnexpectedAdmissionError` 和驱逐；当轮约运行 35 分钟即被基础设施故障中断。随后重建的 pair006 analogy 也在该节点遭遇相同故障，baseline 在其他节点继续运行。pair004–006 的六份配置均暂时排除该节点；每个排除节点使用独立的 `metadata.name NotIn` 单值条件。本机配置更新不改变已运行的 Pod。保留中断轮次的 worktree 和结果，重建时 Pod UID 会生成新目录；这些中断记录不能作为完整六小时对照。其他实验仍运行时，保持 PVC 主仓库原 HEAD 不变，可仅使用本机更新后的 YAML 重建失败的 Job；需要更新共享代码时，等所有使用该仓库的实验结束后再同步。
+
 启动前先把本轮代码（包括实验历史接入和引用 warning 改动）提交并同步到 PVC 主仓库，保持共同起点干净，再启动 Job；不要等 Job 记录起始 commit 后才 pull。在挂载完整 PVC 的 dev Pod 中创建会话目录：
 
 ```bash

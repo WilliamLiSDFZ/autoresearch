@@ -1,0 +1,13 @@
+{
+  "title": "Bidirectional Transformer Toxicity Classifier",
+  "summary": "A six-layer, 512-dimensional bidirectional Transformer encoder classifies comment toxicity and predicts identity attributes as auxiliary outputs. Comments are tokenized with fixed GPT-2 BPE, prefixed with the end-of-text token as CLS, truncated to 256 tokens, and dynamically padded in length buckets. Attention uses padding masks, rotary positional embeddings, RMS normalization, multi-head attention, and squared-ReLU MLPs. The classifier concatenates CLS, masked mean-pooled, and masked max-pooled final token representations. Training targets are continuous toxicity and identity labels; toxicity BCE-with-logits is reweighted to emphasize identity-related and non-toxic identity examples, while unweighted auxiliary identity BCE is added equally. Batches are shuffled, locally length-sorted, then reordered. Embeddings and output head use AdamW; Transformer matrices use Muon with momentum, orthogonalized updates, adaptive scaling, and conditional weight decay. Learning rates linearly warm up then decay to zero across two epochs. FP16 autocast and gradient scaling are used. Inference length-sorts validation examples and returns sigmoid toxicity probabilities.",
+  "evidence": [
+    "SOURCE:29-160",
+    "SOURCE:128-145",
+    "SOURCE:174-279",
+    "SOURCE:285-303",
+    "SOURCE:324-404",
+    "SOURCE:410-453",
+    "SOURCE:463-518"
+  ]
+}

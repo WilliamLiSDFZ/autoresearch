@@ -1,0 +1,12 @@
+{
+  "title": "Identity-Aware Recurrent Toxicity Classifier",
+  "summary": "The solution tokenizes lowercased comments with a regex, builds a 120,000-token training-only vocabulary, maps padding to 0 and unknown tokens to 1, and head-truncates sequences to 220 tokens. It first trains 300-dimensional word embeddings on training text using skip-gram negative sampling with frequency-based subsampling. A spatially dropped embedding layer feeds a bidirectional LSTM followed by a bidirectional GRU. Max and length-normalized mean pools from both recurrent outputs are concatenated, passed through a residual ReLU/dropout dense block, and projected to toxicity plus identity-label logits. Training uses length-bucketed shuffled batches, AdamW, mixed precision, gradient clipping, and epoch-wise multiplicative learning-rate decay. The main binary cross-entropy is mean-normalized identity-aware weighted; unweighted BCE on identity outputs is added equally. Validation inference sorts by length, dynamically truncates batches, applies sigmoid to toxicity logits, and averages predictions from the final two epochs.",
+  "evidence": [
+    "SOURCE:31-57",
+    "SOURCE:63-113",
+    "SOURCE:116-173",
+    "SOURCE:180-216",
+    "SOURCE:223-252",
+    "SOURCE:278-345"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "title": "BiLSTM Toxicity Classifier with AUC Surrogate Refit",
+  "summary": "The solution tokenizes lowercased comments into word and punctuation tokens, truncates to 200 tokens, builds a training-only vocabulary from tokens occurring at least twice, and maps other tokens to UNK. A word embedding layer with spatial dropout feeds two bidirectional LSTMs. Masked mean and max pooling are concatenated and passed through two residual ReLU dense layers and a scalar toxicity-logit head. Training uses soft continuous targets and binary cross-entropy for three epochs, with length-bucketed shuffled batches, Adam, mixed precision, gradient clipping, and linearly decayed learning rate. It then refits the network using sampled identity/toxicity strata and random rows. This loss maximizes a differentiable, confidence-weighted pairwise AUC surrogate combining overall, subgroup, BPSN, and BNSP terms through a negative-power mean, while retaining a weighted BCE anchor. Inference batches comments by length and returns sigmoid probabilities.",
+  "evidence": [
+    "SOURCE:25-53",
+    "SOURCE:66-133",
+    "SOURCE:150-190",
+    "SOURCE:208-308",
+    "SOURCE:320-387"
+  ]
+}

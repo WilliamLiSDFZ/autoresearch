@@ -1,0 +1,11 @@
+{
+  "title": "Bias-weighted bidirectional LSTM toxicity classifier",
+  "summary": "The solution lowercases text and tokenizes words/contractions and punctuation. It builds a training-split vocabulary from tokens occurring at least five times, retaining up to 200,000 entries; sequences are truncated to 220 tokens, with padding index 0 and unknown/empty index 1. A trainable 300-dimensional embedding is spatially dropped, processed by two stacked bidirectional LSTMs (128 hidden units per direction), then summarized by masked mean and max pooling. Their concatenation passes through two residual ReLU linear transforms and a sigmoid logit head. Training uses weighted binary cross-entropy on continuous toxicity targets. Weights upweight rows containing identities, toxic rows without identities, and non-toxic identity rows, then normalize loss magnitude by inverse mean weight. Similar-length batches reduce padding. Adam, fp16 autocast with gradient scaling, and per-epoch exponential learning-rate decay are used for seven epochs. Validation probabilities average predictions from the final three epochs; configured independently seeded models are then averaged.",
+  "evidence": [
+    "SOURCE:30-56",
+    "SOURCE:76-156",
+    "SOURCE:174-208",
+    "SOURCE:227-285",
+    "SOURCE:299-329"
+  ]
+}

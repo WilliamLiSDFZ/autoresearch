@@ -1,0 +1,12 @@
+{
+  "title": "Bidirectional LSTM toxicity classifier",
+  "summary": "The implementation trains a CUDA word-level bidirectional LSTM toxicity classifier. It tokenizes lowercased comments with head truncation, builds a frequency-limited vocabulary from training text only, maps rare or unseen tokens to an unknown ID, and caches ragged token arrays. Two stacked bidirectional LSTMs encode embeddings with whole-vector embedding dropout; masked max and mean pooling are concatenated and passed through residual ReLU dense transforms. Main toxicity logits and auxiliary identity logits are trained using weighted BCE for soft toxicity targets plus auxiliary identity BCE. Batches are shuffled in length-sorted chunks, padded dynamically, and optimized with mixed-precision Adam, gradient clipping, and floor-limited epoch learning-rate decay. Late model states are averaged and validation predictions from the best epoch or averaged state are retained. The code also defines a frozen-encoder residual ranking stage over identity/background cells.",
+  "evidence": [
+    "SOURCE:1-7",
+    "SOURCE:31-76",
+    "SOURCE:107-198",
+    "SOURCE:210-267",
+    "SOURCE:270-384",
+    "SOURCE:391-552"
+  ]
+}

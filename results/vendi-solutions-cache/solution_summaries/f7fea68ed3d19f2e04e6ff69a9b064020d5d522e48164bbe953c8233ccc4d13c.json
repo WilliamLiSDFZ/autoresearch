@@ -1,0 +1,12 @@
+{
+  "title": "Weighted BiLSTM Toxicity Classifier",
+  "summary": "The solution tokenizes lowercased comments with a regex, truncates to 220 tokens, builds a training-derived vocabulary using minimum frequency 5 and a 200,000-type cap, and maps pruned or validation-only tokens to unknown IDs. A learned embedding with spatial dropout feeds two stacked bidirectional LSTMs. Masked temporal max and mean pooling are concatenated, passed through a ReLU dense layer and residual ReLU dense layer, and projected to one toxicity logit plus identity auxiliary logits. Training uses weighted binary cross-entropy for toxicity, up-weighting identity-mention, non-identity toxic, and identity non-toxic examples, plus unweighted auxiliary identity BCE. Batches are shuffled with local length bucketing and dynamically padded. Adam optimization uses mixed-precision gradient scaling, gradient-norm clipping, and exponential learning-rate decay after each of six epochs. Inference length-buckets validation comments, applies sigmoid to the toxicity logit, and evaluates continuous probabilities.",
+  "evidence": [
+    "SOURCE:28-53",
+    "SOURCE:71-134",
+    "SOURCE:162-171",
+    "SOURCE:175-214",
+    "SOURCE:218-252",
+    "SOURCE:274-325"
+  ]
+}

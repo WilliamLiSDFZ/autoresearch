@@ -1,0 +1,12 @@
+{
+  "title": "Identity-Aware Recurrent Text Classifier",
+  "summary": "The solution tokenizes lowercased comments with a word/punctuation regex, builds a 120,000-token vocabulary from training rows, maps unknown tokens to a dedicated ID, and head-truncates sequences to 220 tokens. It pretrains 300-dimensional word embeddings on training text using skip-gram negative sampling with frequency-based subsampling and a 0.75-powered noise distribution. A spatially dropped embedding sequence is encoded by a bidirectional LSTM followed by a bidirectional GRU. Max and masked-mean pooling from both encoder outputs are concatenated, processed by a residual dense ReLU/dropout block, and fed to one toxicity and multiple identity logits. Training uses mean-normalized identity-aware toxicity weights plus unweighted binary cross-entropy auxiliary identity loss. AdamW, mixed precision gradient scaling, gradient clipping, epochwise learning-rate decay, and shuffled length-bucketed batches are used. Inference applies sigmoid to toxicity logits and averages predictions from the final two epochs.",
+  "evidence": [
+    "SOURCE:31-58",
+    "SOURCE:67-114",
+    "SOURCE:121-174",
+    "SOURCE:181-217",
+    "SOURCE:224-253",
+    "SOURCE:279-347"
+  ]
+}

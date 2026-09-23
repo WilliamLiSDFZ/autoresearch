@@ -1,0 +1,11 @@
+{
+  "title": "Bias-weighted BiLSTM toxicity classifier",
+  "summary": "The method lowercases and regex-tokenizes comments, builds a training-split vocabulary from tokens occurring at least five times (capped at 200,000), maps unknown tokens to a reserved ID, and truncates sequences to 220 tokens. A 300-dimensional embedding with channel-wise spatial dropout feeds two stacked bidirectional LSTMs. Masked temporal max and mean pools are concatenated, processed by two residual ReLU linear branches, and mapped to one toxicity logit. Training uses length-bucketed, shuffled batches, weighted binary cross-entropy, Adam, mixed-precision gradient scaling, and epoch-wise exponential learning-rate decay. Weights emphasize identity-mentioned examples, toxic examples without identities, and non-toxic examples with identities; the loss is normalized by inverse mean weight. Validation probabilities use sigmoid outputs and average predictions from the final three epochs; independently seeded models, if configured, are also averaged. Evaluation uses the supplied composite AUC function.",
+  "evidence": [
+    "SOURCE:30-56",
+    "SOURCE:76-156",
+    "SOURCE:160-208",
+    "SOURCE:212-285",
+    "SOURCE:299-329"
+  ]
+}

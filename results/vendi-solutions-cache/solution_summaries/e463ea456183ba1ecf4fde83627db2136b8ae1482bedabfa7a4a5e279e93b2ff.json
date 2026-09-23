@@ -1,0 +1,11 @@
+{
+  "title": "Bias-Weighted BiLSTM Toxicity Ensemble",
+  "summary": "The solution lowercases comments and tokenizes words, apostrophe-containing tokens, and punctuation. It builds a training-split vocabulary from tokens occurring at least five times, retains up to 200,000 entries, maps unknown or empty texts to a reserved token, and truncates sequences to 220 tokens. Length-bucketed padded batches reduce recurrent padding. Each model uses 300-dimensional embeddings, spatial embedding-channel dropout, two stacked bidirectional LSTMs with 128 hidden units per direction, masked max and mean pooling, residual ReLU projections, and a scalar toxicity logit. Training uses identity-aware example weights that emphasize identity-containing comments and toxic/non-identity or non-toxic/identity cases. Weighted binary cross-entropy is normalized by inverse mean weight, optimized with Adam, mixed-precision gradient scaling, optional clipping, and exponential learning-rate decay. Four independently seeded models are trained for seven epochs; each averages validation probabilities from its final three epochs, and member outputs are then averaged. Sigmoid probabilities are clipped to [0,1] for evaluation and saved validation inference.",
+  "evidence": [
+    "SOURCE:30-50",
+    "SOURCE:70-150",
+    "SOURCE:153-202",
+    "SOURCE:221-279",
+    "SOURCE:300-324"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "title": "Word-Level BiLSTM Toxicity Classifier",
+  "summary": "The solution trains a CUDA word-level toxicity classifier on the provided training split and evaluates validation probabilities. Text is lowercased, regex-tokenized, truncated to 200 tokens, and mapped to a training-only vocabulary retaining tokens seen at least twice, capped at 120,000; other tokens become UNK. A two-layer bidirectional LSTM processes 192-dimensional embeddings with spatial embedding dropout. Masked mean and max pooling are concatenated, followed by two residual ReLU dense layers and a scalar logit head. It optimizes binary cross-entropy with logits against continuous target values using Adam, mixed-precision gradient scaling, gradient clipping, and a linearly decayed learning rate over two epochs. Length-bucketed shuffled batches reduce padding. Inference uses evaluation mode, length-bucketed batches, and sigmoid logits to produce validation probabilities.",
+  "evidence": [
+    "SOURCE:24-43",
+    "SOURCE:56-123",
+    "SOURCE:126-175",
+    "SOURCE:187-242"
+  ]
+}

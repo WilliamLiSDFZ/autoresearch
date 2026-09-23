@@ -1,0 +1,12 @@
+{
+  "title": "Bias-Aware BiLSTM Toxicity Classifier",
+  "summary": "The solution tokenizes lowercased comments into words and punctuation, builds a train-only vocabulary with padding and unknown tokens, and head-truncates sequences to 256 tokens. A randomly initialized embedding feeds spatial dropout and two stacked bidirectional LSTMs. Masked max and mean pooling from both LSTM layers are concatenated, passed through two residual-style ReLU dense layers, and used for a toxicity logit plus soft identity-label auxiliary logits. Training weights upweight identity-containing examples, background positives, and subgroup negatives. The objective is weighted binary cross-entropy for toxicity plus equally weighted binary cross-entropy for identity targets. Length-bucketed, shuffled batches reduce padding. AdamW uses separate embedding and other-parameter groups, mixed-precision gradient scaling, norm clipping, linear warmup, and exponential learning-rate decay. Inference sorts by length, dynamically truncates batch width, and applies sigmoid to toxicity logits. Predictions from all epoch endpoints are combined with normalized weights increasing as powers of two.",
+  "evidence": [
+    "SOURCE:33-57",
+    "SOURCE:84-153",
+    "SOURCE:160-202",
+    "SOURCE:212-244",
+    "SOURCE:247-262",
+    "SOURCE:268-340"
+  ]
+}

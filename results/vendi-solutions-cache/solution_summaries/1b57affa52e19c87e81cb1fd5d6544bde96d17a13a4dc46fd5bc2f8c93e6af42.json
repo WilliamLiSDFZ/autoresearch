@@ -1,0 +1,13 @@
+{
+  "title": "Identity-Aware BiLSTM Toxicity Classifier",
+  "summary": "The solution tokenizes lowercased comments into word and punctuation tokens, truncates to 256 tokens, and builds a training-only vocabulary of frequent tokens with padding and unknown IDs. A learned embedding with word-vector dropout feeds two bidirectional LSTM layers. Masked max and mean pooling are concatenated and passed through a residual-style two-layer ReLU dense head producing toxicity and identity logits. Training uses soft toxicity BCE with subgroup-oriented sample weights, plus multilabel BCE for identity attributes. For eligible single-identity comments containing confirmed identity terms, it appends identity-substituted versions, retains toxicity targets, remaps auxiliary identity labels, and penalizes changes in toxicity logits with Smooth L1 loss. Length-bucketed shuffled batches reduce padding. Adam, fp16 autocast, gradient scaling, gradient clipping, and epoch-wise exponential learning-rate decay are used. Validation probabilities are sigmoid-transformed toxicity logits evaluated in length-sorted batches.",
+  "evidence": [
+    "SOURCE:31-58",
+    "SOURCE:102-199",
+    "SOURCE:201-225",
+    "SOURCE:237-274",
+    "SOURCE:296-317",
+    "SOURCE:320-332",
+    "SOURCE:346-407"
+  ]
+}

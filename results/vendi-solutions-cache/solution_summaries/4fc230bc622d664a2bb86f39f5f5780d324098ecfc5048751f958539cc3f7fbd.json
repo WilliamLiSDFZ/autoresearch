@@ -1,0 +1,11 @@
+{
+  "title": "Word BiLSTM Toxicity Classifier",
+  "summary": "The solution lowercases comments and tokenizes words/contractions and punctuation, retaining the first 192 tokens. A vocabulary is built from training tokens with frequency at least 3, capped at 200,000 entries; padding and unknown IDs are reserved. A two-layer bidirectional LSTM processes learned 256-dimensional embeddings with spatial embedding dropout. Masked mean and max sequence pooling are concatenated, passed through two residual ReLU linear blocks, and mapped to one toxicity logit. Training uses fractional-target BCE plus sampled logistic ranking losses over overall and identity BNSP slices. It also computes subgroup and background-positive/subgroup-negative auxiliary ranking gradients, projects the auxiliary gradient orthogonally to an EMA of the primary gradient, and adds the projected component. AdamW uses warmup then cosine-decayed learning rate and gradient clipping. Batches are shuffled with local length sorting and width-rounded padding. Validation logits are sigmoid-transformed and restored to prepared row order.",
+  "evidence": [
+    "SOURCE:30-60",
+    "SOURCE:88-169",
+    "SOURCE:188-243",
+    "SOURCE:257-320",
+    "SOURCE:337-357"
+  ]
+}

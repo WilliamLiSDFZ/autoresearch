@@ -1,0 +1,12 @@
+{
+  "title": "Transformer Toxicity Classifier with Identity Ranking Loss",
+  "summary": "The solution trains a bidirectional Transformer encoder from scratch for comment toxicity prediction. GPT-2 BPE token IDs are head-truncated to 256 tokens, cached, dynamically padded, and length-bucketed after shuffling. Token and positional embeddings pass through six pre-layer-normalized, eight-head self-attention blocks; masked mean and max pooled outputs feed logits for toxicity and identity attributes. Training uses soft-label BCE for toxicity plus equally distributed auxiliary BCE for identity labels. A rotating identity-specific reservoir additionally samples subgroup-positive/negative and background-positive/negative rows, applying logistic pairwise losses for subgroup, BPSN, and BNSP orderings. AdamW uses selective weight decay, linear warmup followed by cosine decay, mixed precision, gradient clipping, and an exponential moving average of parameters. Validation inference sorts examples by length, uses EMA weights, and returns sigmoid toxicity probabilities.",
+  "evidence": [
+    "SOURCE:30-49",
+    "SOURCE:58-129",
+    "SOURCE:135-192",
+    "SOURCE:212-261",
+    "SOURCE:267-310",
+    "SOURCE:318-331"
+  ]
+}

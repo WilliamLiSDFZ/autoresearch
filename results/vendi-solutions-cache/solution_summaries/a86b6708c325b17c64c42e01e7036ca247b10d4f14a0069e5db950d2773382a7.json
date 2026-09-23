@@ -1,0 +1,11 @@
+{
+  "title": "Routed dual BiLSTM toxicity classifier",
+  "summary": "Comments are lowercased, regex-tokenized, head-truncated to 192 tokens, and mapped to a training-only frequency-capped vocabulary with padding and unknown tokens. Each specialist uses learned 256-dimensional embeddings, spatial embedding dropout, two bidirectional LSTM layers, masked mean/max pooling, two residual ReLU dense layers, and a logit head. One specialist minimizes fractional binary cross-entropy; the other adds a batchwise penalty that equalizes mean predicted probabilities between identity-present and identity-absent examples within each hard toxicity class. Both train on a 95% fitting split using length-bucketed batches, AdamW, warmup-cosine learning rates, fp16 gradient scaling, and gradient clipping. A held-out 5% training split trains a router from both logits, their disagreement, probabilities, and length. Its sigmoid gate blends frozen specialist logits and is optimized with BCE, sampled slice-wise pairwise ranking loss, and an anchor penalty. Validation probabilities are sigmoid-transformed routed logits.",
+  "evidence": [
+    "SOURCE:30-68",
+    "SOURCE:96-174",
+    "SOURCE:193-228",
+    "SOURCE:238-325",
+    "SOURCE:359-459"
+  ]
+}

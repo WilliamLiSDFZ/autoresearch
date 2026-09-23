@@ -1,0 +1,12 @@
+{
+  "title": "Identity-Aware Recurrent Text Classifier",
+  "summary": "Comments are lowercased and regex-tokenized; a vocabulary of the 120,000 most frequent training tokens is built, with unknown and padding IDs. Sequences are head-truncated to 220 tokens. Embeddings are initialized by skip-gram word2vec trained on training text using negative sampling, frequency-based subsampling, and a linearly decayed Adam learning rate. The classifier applies embedding spatial dropout, a bidirectional LSTM followed by a bidirectional GRU, then masked max and mean pooling from both recurrent outputs. Concatenated pooled features pass through a residual ReLU/dropout dense block and produce one toxicity logit plus identity logits. Training uses weighted binary cross-entropy for toxicity and unweighted auxiliary binary cross-entropy for identity labels. Weights upweight identity-containing examples and identity/toxicity mismatch groups, then are mean-normalized. AdamW uses epochwise learning-rate decay, mixed precision, and gradient clipping. Length-bucketed shuffled batches reduce padding. Inference sigmoid-transforms toxicity logits and averages validation predictions from the final two epochs.",
+  "evidence": [
+    "SOURCE:31-57",
+    "SOURCE:66-113",
+    "SOURCE:120-173",
+    "SOURCE:180-216",
+    "SOURCE:223-252",
+    "SOURCE:278-345"
+  ]
+}

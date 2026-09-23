@@ -1,0 +1,14 @@
+{
+  "title": "BiLSTM Toxicity Classifier with Residual Ranking Heads",
+  "summary": "Comments are lowercased, tokenized into word and punctuation tokens, truncated or padded to 256 tokens, and mapped through a frequency-pruned vocabulary with an unknown-token ID. A learned embedding with word-vector dropout feeds two bidirectional LSTM layers. Masked max and mean pooled outputs are concatenated and passed through residual dense layers to produce a toxicity logit and auxiliary identity logits. The classifier is trained on soft toxicity labels using weighted binary cross-entropy plus auxiliary identity BCE, with weighted sampling for identity and toxicity groups. Adam, mixed-precision autocasting with gradient scaling, gradient clipping, learning-rate decay with a floor, and optional stochastic weight averaging are configured. Saved validation predictions and model states are selected and stored. A subsequent stage freezes the encoder and trains global and identity-bin linear residual ranking heads from capped subgroup/background positive-negative pools, using pairwise ordering losses and optional fractional-label up/down/tie losses, with emphasis on weaker bias-family cells. Sigmoid probabilities provide final predictions.",
+  "evidence": [
+    "SOURCE:33-76",
+    "SOURCE:107-198",
+    "SOURCE:210-267",
+    "SOURCE:270-296",
+    "SOURCE:337-384",
+    "SOURCE:391-552",
+    "SOURCE:553-560",
+    "SOURCE:563-601"
+  ]
+}

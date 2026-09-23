@@ -1,0 +1,13 @@
+{
+  "title": "Transformer Toxicity Classifier with Bias-Aware Pairwise Loss",
+  "summary": "The solution tokenizes comment text with GPT-2 BPE, truncates or pads sequences to 256 tokens, and trains an eight-layer, 512-dimensional bidirectional Transformer encoder from random initialization. Padding is excluded from attention and from mean/max pooling; their concatenation feeds a multilayer head producing toxicity and identity logits. Training uses weighted binary cross-entropy for the toxicity target and soft identity labels, with auxiliary identity losses scaled collectively by 0.5. Example weights upweight identity mentions and toxicity/identity mismatch groups. In the final epoch, it adds a pairwise logistic ranking loss across subgroup, background-positive/subgroup-negative, and background-negative/subgroup-positive cells for each identity. Per-cell EMA losses define softmax tail weights, and length-compatible toxic/non-toxic identity reservoir examples are appended to batches. Length-bucketed batching reduces padding. AdamW uses separate embedding learning rates, warmup followed by cosine decay, fp16 gradient scaling, and gradient clipping. Inference returns sigmoid toxicity probabilities.",
+  "evidence": [
+    "SOURCE:29-53",
+    "SOURCE:71-159",
+    "SOURCE:166-231",
+    "SOURCE:239-265",
+    "SOURCE:268-277",
+    "SOURCE:290-335",
+    "SOURCE:353-380"
+  ]
+}

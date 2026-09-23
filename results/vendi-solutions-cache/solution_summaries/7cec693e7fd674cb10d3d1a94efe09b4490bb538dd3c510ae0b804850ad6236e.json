@@ -1,0 +1,14 @@
+{
+  "title": "Identity-Aware BiLSTM Toxicity Ensemble",
+  "summary": "The solution tokenizes lowercased comments with a regex, builds a fit-split frequency vocabulary, maps unknown tokens to a dedicated ID, truncates comments to 220 tokens, and caches train/validation encodings. A two-layer bidirectional LSTM consumes learned 300-dimensional word embeddings with channel-wise embedding dropout. Masked temporal max and mean pooling are concatenated, passed through two residual ReLU linear layers, and produce toxicity plus identity-label logits. Training uses mixed-precision Adam with epoch-wise learning-rate decay and gradient clipping. The main binary cross-entropy uses fractional toxicity targets and normalized weights that emphasize identity-containing rows, background-positive rows, and subgroup-negative rows; identity BCE is an auxiliary masked loss. A head-only stage freezes the encoder and adds a logistic pairwise ranking loss over overall, subgroup, background-positive/subgroup-negative, and subgroup-positive/background-negative pools, smooth-max aggregated across identities. Two seeded models are trained, and their sigmoid toxicity validation predictions are averaged.",
+  "evidence": [
+    "SOURCE:29-49",
+    "SOURCE:67-116",
+    "SOURCE:119-135",
+    "SOURCE:141-167",
+    "SOURCE:169-196",
+    "SOURCE:202-224",
+    "SOURCE:229-295",
+    "SOURCE:303-312"
+  ]
+}

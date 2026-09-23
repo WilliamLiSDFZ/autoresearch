@@ -1,0 +1,12 @@
+{
+  "title": "Bias-aware LSTM and Transformer text ensemble",
+  "summary": "The solution tokenizes lowercased comment text with a word/punctuation regex, builds a train-only frequency vocabulary, maps rare/unseen words to UNK, and head-truncates sequences to 256 tokens. It trains three randomly seeded two-layer bidirectional LSTMs and one six-layer pre-layer-normalized Transformer. Both classifiers use masked max and mean pooling, a dense prediction head for the toxicity target, and auxiliary sigmoid heads predicting soft identity annotations. Main binary cross-entropy is reweighted to emphasize identity-containing examples, background positives, and subgroup negatives; auxiliary BCE is added equally. The Transformer is first pretrained on training comments with masked-language modeling, masking eligible tokens at 15% and predicting a restricted frequent-token vocabulary with tied input/output embeddings. Training uses AdamW, mixed precision, gradient clipping, warmup-based learning-rate schedules, and length-bucketed variable-size batches under a token budget. LSTM predictions blend exponentially weighted epoch checkpoints. Inference applies sigmoid outputs, averages models within each family, then combines LSTM and Transformer means with a fixed 0.5 Transformer weight.",
+  "evidence": [
+    "SOURCE:34-75",
+    "SOURCE:102-171",
+    "SOURCE:202-258",
+    "SOURCE:268-306",
+    "SOURCE:347-445",
+    "SOURCE:467-481"
+  ]
+}

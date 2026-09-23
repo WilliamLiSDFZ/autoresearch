@@ -1,0 +1,10 @@
+{
+  "title": "Character-aware BiLSTM toxicity classifier",
+  "summary": "The solution trains a CUDA word-level toxicity classifier on the provided training split and outputs validation probabilities. Text is lowercased, regex-tokenized, truncated to 200 tokens, and mapped through a training-built vocabulary retaining frequent tokens; out-of-vocabulary tokens use UNK. Batches are length-bucketed and padded. Word embeddings are combined through a learned gate with projected averages of hashed character 3–5-gram embeddings. Spatial dropout precedes two bidirectional LSTMs; masked mean and max pooling are concatenated and passed through two residual ReLU dense layers and a scalar logit head. It first optimizes Adam with mixed precision, gradient clipping, linearly decayed learning rate, and BCE-with-logits on continuous targets. It then refits the head and encoder using sampled identity/toxicity strata, maximizing a confidence-weighted smooth pairwise-AUC composite with overall, subgroup, BPSN, and BNSP terms, plus a BCE anchor. Sigmoid logits are used for inference.",
+  "evidence": [
+    "SOURCE:73-155",
+    "SOURCE:172-229",
+    "SOURCE:247-341",
+    "SOURCE:359-435"
+  ]
+}

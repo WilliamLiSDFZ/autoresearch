@@ -1,0 +1,12 @@
+{
+  "title": "Dual BiLSTM Toxicity Classifier",
+  "summary": "The solution tokenizes lowercased comments into words and punctuation, truncates to 192 tokens, and builds a training-only vocabulary with padding and unknown tokens. Each specialist uses trained-from-scratch 256-dimensional embeddings, spatial embedding dropout, two bidirectional LSTM layers, masked mean and max pooling, two residual ReLU dense layers, and a scalar logit head. It trains one model with fractional binary cross-entropy on continuous targets and another with the same loss plus a target-conditioned identity dependence penalty that equalizes mean predicted probabilities between identity-present and identity-absent examples separately for hard toxic and non-toxic classes. Training uses a deterministic 95/5 fit/calibration partition, shuffled length-bucketed batches, AdamW, warmup followed by cosine learning-rate decay, mixed precision, and gradient clipping. A grid search on held-out training rows selects a logit-level blend of the specialists. Validation inference is length-sorted and batched; blended logits are sigmoid-transformed into probabilities.",
+  "evidence": [
+    "SOURCE:30-60",
+    "SOURCE:88-166",
+    "SOURCE:185-220",
+    "SOURCE:230-268",
+    "SOURCE:271-317",
+    "SOURCE:320-379"
+  ]
+}

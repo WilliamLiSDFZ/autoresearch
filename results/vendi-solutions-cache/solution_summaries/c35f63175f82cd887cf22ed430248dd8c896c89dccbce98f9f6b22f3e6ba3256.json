@@ -1,0 +1,10 @@
+{
+  "title": "Identity-Aware Word BiLSTM Classifier",
+  "summary": "The solution lowercases comments and tokenizes words, contractions, numbers, and punctuation. A vocabulary of the 120,000 most frequent training-split tokens is built; texts are truncated to 220 tokens, with padding and unknown-token IDs. A learned 300-dimensional embedding with spatial dropout feeds a two-layer bidirectional LSTM. Masked max and mean sequence pooling are concatenated, then processed by two residual ReLU linear layers to predict a main toxicity target and identity attributes. The main target uses fractional labels by default, while missing identity labels are masked. Binary cross-entropy applies normalized weights that upweight identity-containing rows, background-toxic rows, and non-toxic identity rows; auxiliary identity BCE is averaged and added. Training uses length-bucketed shuffled batches, Adam, four epochs of multiplicative learning-rate decay, mixed precision, and gradient clipping. Validation toxicity probabilities are sigmoid outputs, ensembled across epochs with weights 2^epoch.",
+  "evidence": [
+    "SOURCE:29-43",
+    "SOURCE:61-129",
+    "SOURCE:135-190",
+    "SOURCE:199-240"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "title": "Bias-aware LSTM and Transformer toxicity ensemble",
+  "summary": "The solution tokenizes lowercased comments with a word regex, builds a train-only frequency vocabulary, maps rare words to UNK, and head-truncates sequences to 256 tokens. It trains three randomly seeded two-layer bidirectional LSTMs and one six-layer pre-layer-normalized Transformer. Both classifiers use masked max-and-mean pooling, a dense prediction head for toxicity logits, and auxiliary sigmoid heads predicting soft identity labels. Toxicity BCE is weighted to emphasize identity-containing comments, background positives, and subgroup negatives; auxiliary identity BCE is added equally. Batches are shuffled, locally length-sorted, and reduced for long sequences under a token budget. Training uses mixed precision, AdamW, gradient clipping, warmup and decay schedules. The Transformer first receives train-text-only masked-language-model pretraining, masking eligible tokens with 80/10/10 mask/random/unchanged replacements and predicting a restricted vocabulary through tied embeddings. Inference averages exponentially weighted LSTM epoch checkpoints, then blends mean LSTM and Transformer probabilities equally.",
+  "evidence": [
+    "SOURCE:3-5",
+    "SOURCE:34-75",
+    "SOURCE:102-170",
+    "SOURCE:178-258",
+    "SOURCE:264-306",
+    "SOURCE:331-445",
+    "SOURCE:451-477"
+  ]
+}

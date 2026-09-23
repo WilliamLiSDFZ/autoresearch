@@ -1,0 +1,10 @@
+{
+  "title": "Word-level BiLSTM toxicity classifier",
+  "summary": "The solution lowercases and regex-tokenizes comments, retaining up to 256 tokens. It builds a training-only vocabulary from tokens occurring at least twice, capped at 300,000, with padding and unknown IDs; validation tokens outside it map to unknown. A learned 256-dimensional embedding feeds two bidirectional LSTM layers with 192 units per direction. Masked max and mean pooling are concatenated, passed through two ReLU dense residual branches, and used for a toxicity logit and identity-label auxiliary logits. Training uses soft toxicity targets, weighted binary cross-entropy that upweights identity, toxic non-identity, and non-toxic identity strata, plus 0.5-weighted identity BCE. Batches are shuffled then length-bucketed and padded. Adam, fp16 autocast with gradient scaling, norm clipping at 1.0, and 0.6 per-epoch learning-rate decay are used for five epochs. Validation inference length-sorts examples and outputs sigmoid toxicity probabilities.",
+  "evidence": [
+    "SOURCE:31-52",
+    "SOURCE:80-175",
+    "SOURCE:186-223",
+    "SOURCE:226-305"
+  ]
+}

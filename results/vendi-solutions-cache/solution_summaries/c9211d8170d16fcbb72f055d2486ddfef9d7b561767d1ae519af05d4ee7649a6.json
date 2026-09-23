@@ -1,0 +1,13 @@
+{
+  "title": "Transformer Toxicity Classifier with Identity Auxiliary Heads",
+  "summary": "The solution trains a Transformer encoder from scratch for comment toxicity prediction. Comments are GPT-2 BPE-tokenized, truncated or padded to 256 tokens, with empty inputs assigned an end-of-text token. An 8-layer, 512-dimensional, 8-head non-causal self-attention encoder uses learned token and positional embeddings, padding masks, dropout, GELU feed-forward layers, and LayerNorm. Masked mean and max sequence pooling are concatenated and passed to an MLP producing a toxicity logit plus identity-label auxiliary logits. Training minimizes per-output binary cross-entropy: toxicity has weight 1 and identity losses share total weight 0.5. Samples receive normalized bias-aware weights based on toxicity and identity membership. Length-bucketed shuffled batches reduce padding. AdamW uses a higher unregularized embedding learning rate, decoupled weight decay for matrix parameters, warmup followed by cosine decay, fp16 autocast, gradient scaling, and norm clipping. Inference batches validation inputs and returns sigmoid-transformed toxicity logits.",
+  "evidence": [
+    "SOURCE:2-3",
+    "SOURCE:29-47",
+    "SOURCE:65-135",
+    "SOURCE:142-207",
+    "SOURCE:215-241",
+    "SOURCE:244-253",
+    "SOURCE:264-282"
+  ]
+}

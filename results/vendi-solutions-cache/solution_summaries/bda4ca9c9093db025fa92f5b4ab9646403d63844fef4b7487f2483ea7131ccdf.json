@@ -1,0 +1,12 @@
+{
+  "title": "Bias-aware BiLSTM and Transformer Ensemble",
+  "summary": "The solution tokenizes lowercased comments with a word-level vocabulary learned only from training text; rare or unseen words map to UNK, sequences are head-truncated to 256 tokens, and batches are length-bucketed under a token budget. It trains three randomly seeded two-layer bidirectional LSTMs with spatial embedding dropout, masked max/mean pooling of both recurrent layers, residual dense processing, and toxicity plus identity prediction heads. It also trains a pre-layer-normalized six-layer Transformer encoder with learned positions. The Transformer is first pretrained on training comments using masked-language modeling over a restricted frequent-token output vocabulary, then fine-tuned for the same supervised tasks. Main toxicity loss is weighted binary cross-entropy, with weights emphasizing identity-containing comments, non-identity positives, and subgroup negatives; auxiliary BCE predicts soft identity labels. AdamW, mixed precision, gradient clipping, warmup and decay schedules are used. Inference averages LSTM seeds, blends epoch checkpoints for LSTMs, then combines LSTM and Transformer probabilities equally.",
+  "evidence": [
+    "SOURCE:35-75",
+    "SOURCE:102-171",
+    "SOURCE:202-258",
+    "SOURCE:268-306",
+    "SOURCE:338-445",
+    "SOURCE:451-481"
+  ]
+}

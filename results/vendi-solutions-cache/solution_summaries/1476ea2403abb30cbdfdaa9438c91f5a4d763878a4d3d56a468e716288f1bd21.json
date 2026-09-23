@@ -1,0 +1,12 @@
+{
+  "title": "EMA-Anchored BiLSTM Toxicity Classifier",
+  "summary": "The solution trains a word-level toxicity classifier on prepared training rows. Comments are lowercased, regex-tokenized, head-truncated to 192 tokens, and mapped through a training-only frequency vocabulary with padding and unknown tokens. A learned 256-dimensional embedding feeds two bidirectional LSTM layers. Masked mean and max sequence pooling are concatenated, passed through two residual ReLU dense layers, and projected to one toxicity logit. Training uses fractional binary cross-entropy and, after warm-up, a one-sided identity penalty: for non-toxic identity-present examples, mean predicted probability is penalized when above an EMA reference estimated from correctly predicted non-toxic identity-absent examples. Its coefficient is calibrated from auxiliary versus BCE gradient norms. AdamW uses linear warm-up then cosine decay, fp16 autocast with fixed loss scaling, and gradient clipping. Length-bucketed shuffled batches reduce padding. Validation runs length-sorted inference and writes sigmoid probabilities in prepared row order.",
+  "evidence": [
+    "SOURCE:30-60",
+    "SOURCE:88-166",
+    "SOURCE:185-240",
+    "SOURCE:257-273",
+    "SOURCE:319-364",
+    "SOURCE:385-405"
+  ]
+}

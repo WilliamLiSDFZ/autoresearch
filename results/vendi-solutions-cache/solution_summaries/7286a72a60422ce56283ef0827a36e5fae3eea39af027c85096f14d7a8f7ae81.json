@@ -1,0 +1,14 @@
+{
+  "title": "BiLSTM Toxicity Classifier with Residual Ranking",
+  "summary": "The solution tokenizes lowercased comments, truncates sequences, builds a frequency-limited training vocabulary, and maps rare or unseen tokens to an unknown ID. A two-layer bidirectional LSTM encodes word embeddings with embedding dropout. Masked max and mean pooled representations are concatenated and processed by residual ReLU dense layers to produce toxicity and auxiliary identity logits. Training uses weighted binary cross-entropy with soft toxicity labels and identity auxiliary targets; weights include base, identity, toxic-background, and non-toxic-subgroup terms. Length-sorted shuffled batches are dynamically padded. Adam optimization uses mixed-precision scaling, gradient clipping, epoch learning-rate decay with a floor, and averaging of late model states. A frozen encoder can feed a residual ranking head trained with Adam on sampled positive and negative examples from identity/background cell pools. Validation predictions are selected from configured model-weight sources and saved with checkpoints, metrics, and configuration.",
+  "evidence": [
+    "SOURCE:1-7",
+    "SOURCE:31-76",
+    "SOURCE:107-198",
+    "SOURCE:210-267",
+    "SOURCE:270-384",
+    "SOURCE:391-552",
+    "SOURCE:553-560",
+    "SOURCE:563-595"
+  ]
+}

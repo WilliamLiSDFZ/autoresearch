@@ -1,0 +1,12 @@
+{
+  "title": "Bias-weighted bidirectional LSTM toxicity classifier",
+  "summary": "The solution tokenizes lowercased comments with a regex, truncates them to 220 tokens, builds a training-derived vocabulary using minimum frequency 2 and a 200,000-type cap, and maps pruned or unseen tokens to an unknown ID. Empty comments receive a placeholder token. A trainable 256-dimensional embedding with spatial dropout feeds two stacked bidirectional LSTMs. Masked temporal max and mean pooling are concatenated, processed by two ReLU dense layers with a residual connection, and projected to one toxicity logit plus identity-label auxiliary logits. Toxicity loss is weighted to emphasize identity-mentioning rows and selected toxic/non-toxic background cases; auxiliary identity binary cross-entropy is added equally. Training uses shuffled length-bucketed padded batches, Adam, mixed-precision gradient scaling, gradient-norm clipping, and exponential learning-rate decay for four epochs. Inference batches by length and returns sigmoid toxicity probabilities; validation probabilities are evaluated and saved with model artifacts.",
+  "evidence": [
+    "SOURCE:28-54",
+    "SOURCE:72-135",
+    "SOURCE:163-172",
+    "SOURCE:190-215",
+    "SOURCE:219-253",
+    "SOURCE:275-328"
+  ]
+}

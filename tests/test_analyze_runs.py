@@ -186,6 +186,52 @@ class AnalyzeRunsTests(unittest.TestCase):
                 self.assertEqual(pairs, [])
                 self.assertTrue(issues)
 
+    def test_task_hash_alias_pairs_with_canonical_metadata(self):
+        self.make_pair()
+        path = self.root / "pair-001-analogy/run.json"
+        metadata = self.read_json(path)
+        metadata["task_sha256"] = metadata.pop("task_file_sha256")
+        for canonical in (None, "", "a" * 64):
+            with self.subTest(canonical=canonical):
+                values = dict(metadata)
+                if canonical is not None:
+                    values["task_file_sha256"] = canonical
+                self.write_json(path, values)
+                records, _ = analysis.inventory_runs(self.root)
+                pairs, issues = analysis.build_pairs(records)
+                self.assertEqual(issues, [])
+                self.assertEqual(len(pairs), 1)
+                self.assertTrue(all(row["task_hash"] == "a" * 64 for row in records))
+
+    def test_conflicting_task_hash_aliases_exclude_the_run(self):
+        run = self.make_run("conflicting-task", task_sha256="d" * 64)
+        with self.assertRaisesRegex(ValueError, "conflicting_task_hashes"):
+            analysis.identify_run(run, self.read_json(run / "run.json"), {})
+        records, _ = analysis.inventory_runs(self.root)
+        self.assertEqual(records[0]["status"], "excluded")
+        self.assertEqual(records[0]["reason"], "invalid_run_metadata:conflicting_task_hashes")
+
+    def test_gpu_metadata_aliases_preserve_precedence_and_pairing(self):
+        self.make_pair()
+        path = self.root / "pair-001-analogy/run.json"
+        metadata = self.read_json(path)
+        metadata.pop("gpu")
+        cases = (
+            {"gpu_name": "fixture GPU"},
+            {"gpu": "", "gpu_name": "fixture GPU"},
+            {"gpu_actual": "fixture GPU", "gpu_name": "ignored GPU"},
+            {"gpu": "fixture GPU", "gpu_actual": "ignored GPU", "gpu_name": "ignored GPU"},
+        )
+        for aliases in cases:
+            with self.subTest(aliases=aliases):
+                self.write_json(path, dict(metadata, **aliases))
+                records, _ = analysis.inventory_runs(self.root)
+                pairs, issues = analysis.build_pairs(records)
+                self.assertTrue(all(row["gpu"] == "fixture GPU" for row in records))
+                self.assertEqual(issues, [])
+                self.assertNotIn("gpu_differs", pairs[0]["warnings"])
+                self.assertNotIn("gpu_unknown", pairs[0]["warnings"])
+
     def test_duplicate_eligible_arm_is_ambiguous_even_if_one_scores_higher(self):
         self.make_pair()
         self.make_run("another-analogy-attempt", arm="analogy", scores=(0.99,))
@@ -194,6 +240,36 @@ class AnalyzeRunsTests(unittest.TestCase):
         self.assertEqual(pairs, [])
         self.assertEqual(issues[0]["reason"], "missing_or_ambiguous_arm")
         self.assertIn("another-analogy-attempt", issues[0]["runs"])
+
+    def test_explicit_exclusions_pair_reruns_without_selecting_highest_attempt(self):
+        self.make_pair(baseline=(0.7,), analogy=(0.8,))
+        for arm, score in (("baseline", 0.98), ("analogy", 0.99)):
+            run = self.make_run("interrupted-" + arm, arm=arm, scores=(score,))
+            (run / "summary.md").unlink()
+            self.make_trial(run, "trial0002", 1.0, completed=False)
+            self.write_json(run / "_fetch.json", {"fetched_at_utc": "2099-01-01T00:00:00Z"})
+        records, _ = analysis.inventory_runs(self.root)
+        pairs, issues = analysis.build_pairs(records)
+        self.assertEqual(pairs, [])
+        self.assertEqual(issues[0]["reason"], "missing_or_ambiguous_arm")
+
+        manifest = self.root / "manifest.csv"
+        self.write(manifest, "run,exclude_reason\n"
+                             "interrupted-baseline,infrastructure interruption\n"
+                             "interrupted-analogy,infrastructure interruption\n")
+        records, trials = analysis.inventory_runs(self.root, analysis.load_overrides(manifest))
+        pairs, issues = analysis.build_pairs(records)
+        self.assertEqual(issues, [])
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0]["reference_run"], "pair-001-baseline")
+        self.assertEqual(pairs[0]["treatment_run"], "pair-001-analogy")
+        self.assertAlmostEqual(pairs[0]["effect"], 0.1)
+        for row in records:
+            if row["run"].startswith("interrupted-"):
+                self.assertEqual(row["status"], "excluded")
+                self.assertEqual(row["reason"], "manual:infrastructure interruption")
+                self.assertEqual(row["n_valid_trials"], 1)
+        self.assertEqual(len(trials), 6)
 
     def test_failed_restart_does_not_hide_the_only_valid_attempt(self):
         self.make_pair()

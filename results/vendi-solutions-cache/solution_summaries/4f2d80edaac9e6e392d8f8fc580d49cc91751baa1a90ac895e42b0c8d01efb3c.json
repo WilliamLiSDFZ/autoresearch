@@ -1,0 +1,12 @@
+{
+  "title": "Transformer Toxicity and Identity Classifier",
+  "summary": "Comments are GPT-2-BPE tokenized, truncated to 256 tokens, padded, and batched with length bucketing. An 8-layer, 512-dimensional, 8-head Transformer is trained from scratch with learned token and position embeddings, non-causal padding-masked self-attention, GELU feed-forward blocks, and dropout. Masked mean and max token pooling are concatenated for an MLP that predicts toxicity plus one auxiliary logit per identity. The loss is per-output BCE-with-logits: toxicity has weight 1 and identity losses share total weight 0.5; samples are reweighted by target/identity group membership. AdamW uses a higher unregularized embedding learning rate, decoupled weight decay for matrix parameters, linear warmup then cosine decay, mixed-precision gradient scaling, and gradient clipping. Parameters are updated for three epochs, while an EMA model is updated after each optimizer step. Inference uses the EMA model and returns sigmoid toxicity probabilities.",
+  "evidence": [
+    "SOURCE:70-112",
+    "SOURCE:117-136",
+    "SOURCE:143-208",
+    "SOURCE:216-247",
+    "SOURCE:268-288",
+    "SOURCE:250-257"
+  ]
+}

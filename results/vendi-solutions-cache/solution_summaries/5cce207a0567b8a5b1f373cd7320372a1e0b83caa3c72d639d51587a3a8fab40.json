@@ -1,0 +1,12 @@
+{
+  "title": "Scratch Transformer Toxicity Classifier",
+  "summary": "The solution tokenizes comment text with GPT-2 BPE, truncates or pads sequences to 256 tokens, and replaces empty inputs with an end-of-text token. It trains an 8-layer, 512-dimensional, 8-head Transformer encoder from random initialization. Each pre-layer-normalized block uses full self-attention with padding masking, a GELU feed-forward layer of width 4× embedding size, residual connections, and dropout. Final token representations are masked mean- and max-pooled, concatenated, and passed through an MLP to produce one target logit plus identity-label auxiliary logits. Training uses weighted binary cross-entropy: the primary target has weight 1 and identity losses share auxiliary weight 0.5. Examples are reweighted by target/identity membership combinations. Length-bucketed shuffled batches reduce padding. AdamW applies a separate higher learning rate without decay to embeddings, decoupled decay to matrix parameters, warmup then cosine decay, mixed FP16 scaling, and gradient clipping. Inference returns sigmoid probabilities from the target logit.",
+  "evidence": [
+    "SOURCE:29-47",
+    "SOURCE:69-124",
+    "SOURCE:131-196",
+    "SOURCE:204-230",
+    "SOURCE:251-271",
+    "SOURCE:233-242"
+  ]
+}

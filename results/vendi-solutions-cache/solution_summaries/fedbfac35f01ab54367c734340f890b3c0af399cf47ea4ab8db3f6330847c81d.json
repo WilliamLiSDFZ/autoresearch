@@ -1,0 +1,12 @@
+{
+  "title": "Transformer toxicity classifier with bias-aware pairwise loss",
+  "summary": "The solution trains a transformer classifier from scratch on GPT-2 BPE-tokenized comment text, truncating or padding sequences to 256 tokens. The model uses token and positional embeddings, eight pre-norm self-attention/MLP blocks, masked mean and max pooling, and an MLP producing one toxicity logit plus identity-label auxiliary logits. Training uses weighted binary cross-entropy, with auxiliary losses weighted collectively by 0.5 and sample weights that upweight identity mentions and identity/target-discordant examples. In the final training epoch, batches are augmented with sampled toxic and non-toxic identity examples. A pairwise logistic ranking loss compares positive against negative toxicity scores for subgroup and background-positive/subgroup-negative cells. Cell-loss EMAs select the highest-loss fraction for a CVaR-style mixture of overall and tail cell losses. AdamW uses separate embedding learning rates, warmup followed by cosine decay, fp16 scaling, and gradient clipping. Inference returns sigmoid-transformed toxicity logits.",
+  "evidence": [
+    "SOURCE:29-54",
+    "SOURCE:73-149",
+    "SOURCE:156-221",
+    "SOURCE:229-255",
+    "SOURCE:280-328",
+    "SOURCE:258-267"
+  ]
+}

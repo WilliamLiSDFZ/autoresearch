@@ -1,0 +1,11 @@
+{
+  "title": "Conditional Alignment BiLSTM Toxicity Classifier",
+  "summary": "The solution tokenizes lowercased comments into words and punctuation, truncates to 192 tokens, and builds a training-only vocabulary from tokens occurring at least three times. A train-from-scratch model uses 256-dimensional embeddings, spatial embedding dropout, two bidirectional LSTM layers with 128 units per direction, masked mean/max pooling, residual ReLU dense layers, and a scalar logit head. It trains for two epochs with AdamW, warmup followed by cosine learning-rate decay, fp16 autocast with fixed loss scaling, and gradient clipping. The primary objective is BCE with fractional toxicity targets. An auxiliary loss aligns random-Fourier-feature logit distributions between identity-present and identity-absent examples separately within hard toxic and non-toxic classes, while subtracting normalized label-dependence HSIC. Its coefficient is calibrated from separate auxiliary and BCE gradient norms. Length-bucketed shuffled batches reduce padding. Validation runs length-sorted inference, applies sigmoid probabilities, and preserves prepared validation-row order.",
+  "evidence": [
+    "SOURCE:30-60",
+    "SOURCE:88-166",
+    "SOURCE:185-227",
+    "SOURCE:255-290",
+    "SOURCE:314-401"
+  ]
+}

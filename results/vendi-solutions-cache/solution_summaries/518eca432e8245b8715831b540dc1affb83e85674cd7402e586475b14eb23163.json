@@ -1,0 +1,12 @@
+{
+  "title": "Transformer Toxicity Classifier with Dynamic Group Loss",
+  "summary": "The solution tokenizes comment text with GPT-2 BPE, truncates or pads sequences to 256 tokens, and trains an 8-layer, 512-dimensional, 8-head Transformer from scratch. Padding is masked in attention; final token representations are mean- and max-pooled, concatenated, and passed to a multilabel head producing toxicity and identity logits. Training uses sigmoid binary cross-entropy for toxicity plus soft identity-label auxiliary losses, with identity/background bias-based sample weights. It additionally defines four toxicity/identity-membership cells per identity, maintains exponential-moving-average cell losses, and adds a cell BCE objective weighted by a softmax emphasizing higher-loss present cells. Length-bucketed shuffled batches reduce padding. AdamW uses separate higher-learning-rate, no-decay token/position embeddings; matrix parameters receive weight decay, while vector parameters do not. Learning rates use linear warmup then cosine decay. Mixed fp16 training uses gradient scaling and global gradient clipping. Inference returns sigmoid-transformed toxicity logits.",
+  "evidence": [
+    "SOURCE:29-52",
+    "SOURCE:70-148",
+    "SOURCE:155-220",
+    "SOURCE:228-254",
+    "SOURCE:257-309",
+    "SOURCE:327-350"
+  ]
+}
