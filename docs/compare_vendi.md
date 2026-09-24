@@ -102,7 +102,7 @@ Embedding 超长显式记为错误，不截断。默认 MiniLM 的 512 窗口沿
 
 ## 输出与退出状态
 
-输出包括 `parent_map.csv`、`coverage.csv`、`comparability.csv`、`samples.jsonl`、`change_evidence/*.json`、`run_scores.csv`、`comparisons.csv`、`manifest.json`、`REPORT.md`。有足够样本时生成 PNG/PDF 的 Vendi 曲线；有完整配对时增加 effect 曲线和最大共同 m 的 paired 图。每次更新仅清理本脚本上次登记、此次不再生成的图。
+输出包括 `parent_map.csv`、`coverage.csv`、`comparability.csv`、`samples.jsonl`、`change_evidence/*.json`、`run_scores.csv`、`comparisons.csv`、`manifest.json`、`REPORT.md`。有足够样本时生成 PNG 的 Vendi 曲线；有完整配对时增加 effect 曲线和最大共同 m 的 paired 图。每次更新仅清理本脚本上次登记、此次不再生成的图。
 
 退出码 0：检查/准备成功，或评分完整；2：缺证据、提取/embedding 失败或没有可评分集合。全部确认 no-change 时输出 coverage 并成功退出，不制造零分。配置/格式错误也会非零退出。
 

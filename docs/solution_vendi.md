@@ -92,7 +92,7 @@ GPU、起始 commit、预算和主 agent 模型等差异列在 `comparability.cs
 - `coverage.csv`、`comparability.csv`：提取覆盖率及实验条件差异。
 - `full_run_scores.csv`：每个 run 的全量描述性 Vendi。
 - `run_scores.csv`、`comparisons.csv`：相同候选数下的分数及 treatment − baseline 差值。
-- `*_vendi.*`、`*_effect.*`、`*_paired.*`：PNG/PDF 图；有足够样本与配对时生成。
+- `*_vendi.png`、`*_effect.png`、`*_paired.png`：PNG 图；有足够样本与配对时生成。
 - `manifest.json`、`REPORT.md`：运行参数、模型身份、代码 hash、摘要 API 调用计数与解释。
 
 保存了完整向量后可离线重算，不调用摘要或 embedding：

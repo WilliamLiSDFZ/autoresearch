@@ -20,8 +20,8 @@ uv run --script analyze_runs.py --contrast draft:baseline --contrast draft-impro
 
 ## 图表与统计口径
 
-- `charts/*_paired.png` / `.pdf`：每条线是一对独立实验，各 arm 使用该 run 内最优的有效 completed trial。纵轴保留原始验证分数；对于 loss 等越小越好的指标，纵轴反向。
-- `charts/*_effect.png` / `.pdf`：每个点是一对实验的差值。最大化指标为 treatment − reference，最小化指标为 reference − treatment，始终正值表示 treatment 更好。两对及以上显示配对差值均值的 95% t 区间，一对不画区间，不做显著性判断。
+- `charts/*_paired.png`：每条线是一对独立实验，各 arm 使用该 run 内最优的有效 completed trial。纵轴保留原始验证分数；对于 loss 等越小越好的指标，纵轴反向。
+- `charts/*_effect.png`：每个点是一对实验的差值。最大化指标为 treatment − reference，最小化指标为 reference − treatment，始终正值表示 treatment 更好。两对及以上显示配对差值均值的 95% t 区间，一对不画区间，不做显著性判断。
 - `run_inventory.csv` / `trial_inventory.csv`：所有 run / trial 的状态、排除原因、最佳指标和身份信息。没有有效结果的 run 会记录但不进入图表，不当作零分。
 - `pairs.csv` / `effects.csv` / `pair_issues.csv`：实际配对、统计汇总及无法配对的原因。`summary.md` 提供文字说明，`analysis.json` 记录输入、参数、脚本 hash 和本次生成图表。
 

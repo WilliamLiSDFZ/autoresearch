@@ -259,10 +259,9 @@ def plot_results(out, scores, comparisons, coverage, issues):
         def save(fig, name):
             fig.text(0.07, 0.015, note, fontsize=8, color="#64748b", va="bottom")
             fig.tight_layout(rect=(0, 0.11, 1, 1))
-            for extension in ("png", "pdf"):
-                file = out / f"{prefix}_{name}.{extension}"
-                fig.savefig(file, dpi=170, bbox_inches="tight")
-                output_files.append(file.name)
+            file = out / f"{prefix}_{name}.png"
+            fig.savefig(file, dpi=170, bbox_inches="tight")
+            output_files.append(file.name)
             plt.close(fig)
 
         fig, ax = plt.subplots(figsize=(13, 5.5))

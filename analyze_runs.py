@@ -272,7 +272,7 @@ def plot_figures(pairs, effects, records, output):
                          "axes.spines.top": False, "axes.spines.right": False,
                          "axes.titleweight": "bold", "axes.labelcolor": "#334155",
                          "text.color": "#172033", "axes.edgecolor": "#cbd5e1",
-                         "savefig.facecolor": "white", "pdf.fonttype": 42})
+                         "savefig.facecolor": "white"})
     charts = output / "charts"
     charts.mkdir(exist_ok=True)
     cohorts = defaultdict(list)
@@ -296,10 +296,9 @@ def plot_figures(pairs, effects, records, output):
 
         def save(fig, kind):
             fig.text(0.07, 0.035, footnote, fontsize=8, color="#64748b", va="bottom", linespacing=1.6)
-            for extension in ("png", "pdf"):
-                path = charts / f"{stem}_{kind}.{extension}"
-                fig.savefig(path, dpi=180, bbox_inches="tight")
-                generated.append(path.relative_to(output).as_posix())
+            path = charts / f"{stem}_{kind}.png"
+            fig.savefig(path, dpi=180, bbox_inches="tight")
+            generated.append(path.relative_to(output).as_posix())
             plt.close(fig)
 
         draws = defaultdict(dict)
