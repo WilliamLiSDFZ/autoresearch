@@ -120,7 +120,7 @@ class SolutionVendiTests(unittest.TestCase):
         self.assertEqual(coverage[0]["n_missing"], "0")
         self.assertNotIn("n_changed", coverage[0])
         exported = [json.loads(line) for line in (self.output / "samples.jsonl").read_text().splitlines()]
-        self.assertTrue(all(row["stage"] == "solution" and row["parent_id"] == "" for row in exported))
+        self.assertTrue(all(row["stage"] == "solution" and "parent_id" not in row for row in exported))
         manifest = json.loads((self.output / "manifest.json").read_text())
         self.assertEqual(manifest["summary_api_calls"], 0)
         self.assertEqual(manifest["settings"]["mode"], "solutions")
@@ -222,24 +222,26 @@ class SolutionVendiTests(unittest.TestCase):
         self.assertEqual((full["baseline"]["n"], full["analogy"]["n"]), ("11", "7"))
         self.assertTrue(all(row["status"] == "descriptive_unmatched_counts" for row in full.values()))
 
-    def test_multiple_tasks_and_pairs_remain_separate(self):
+    def test_multiple_studies_tasks_and_pairs_remain_separate(self):
         rows = []
-        for task in ("task-a", "task-b"):
-            for pair in ("pair-one", "pair-two"):
-                for row in self.pair(task=task, pair_id=pair):
-                    row["run_id"] = task + "-" + pair + "-" + row["arm"]
-                    rows.append(row)
+        for study in ("study-a", "study-b"):
+            for task in ("task-a", "task-b"):
+                for pair in ("pair-one", "pair-two"):
+                    for row in self.pair(study_id=study, task=task, pair_id=pair):
+                        row["run_id"] = study + "-" + task + "-" + pair + "-" + row["arm"]
+                        rows.append(row)
         self.write_input(rows)
         self.assertEqual(self.main(), 0)
-        self.assertEqual(len(self.csv_rows("run_scores.csv")), 8)
-        self.assertEqual(len({row["cohort"] for row in self.csv_rows("run_scores.csv")}), 2)
+        self.assertEqual(len(self.csv_rows("run_scores.csv")), 16)
+        self.assertEqual(len({row["cohort"] for row in self.csv_rows("run_scores.csv")}), 4)
         means = [row for row in self.csv_rows("comparisons.csv") if row["kind"] == "paired_mean"]
-        self.assertEqual(len(means), 2)
+        self.assertEqual(len(means), 4)
         self.assertTrue(all(row["n_pairs"] == "2" and abs(float(row["delta"]) - 1) < 1e-8 for row in means))
 
-    def test_solution_mode_rejects_parent_and_stage_options(self):
+    def test_removed_options_are_rejected(self):
         self.make_run()
-        for options in (("--parent-map", str(self.root / "missing.csv")), ("--stages", "improve")):
+        for options in (("--parent-map", str(self.root / "missing.csv")), ("--stages", "improve"),
+                        ("--mode", "changes"), ("--mode", "solutions")):
             with self.subTest(options=options), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 self.main(*options, "--prepare-only", raw=True, stdlib=True)
         self.assertFalse(self.output.exists())
@@ -248,9 +250,19 @@ class SolutionVendiTests(unittest.TestCase):
         self.write_input(self.pair())
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             self.main("--mode", "changes", "--prepare-only", stdlib=True)
-        self.write_input([{**row, "stage": "improve", "representation_version": "diff-v1"} for row in self.pair()])
-        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            self.main("--prepare-only", stdlib=True)
+        for stage, version in (("draft", "summary-v1"), ("improve", "diff-v1"), ("", "diff-v1"),
+                               ("solution", "diff-v1")):
+            self.write_input(self.pair(stage=stage, representation_version=version))
+            with self.subTest(stage=stage, version=version), self.assertRaisesRegex(ValueError, "only solution-v1"):
+                self.main("--prepare-only", stdlib=True)
+        for status in ("changed", "no_change", "insufficient_evidence", "", None):
+            self.write_input(self.pair(assessment_status=status))
+            with self.subTest(status=status), self.assertRaisesRegex(ValueError, "diff assessment"):
+                self.main("--prepare-only", stdlib=True)
+        for card in ({"status": ""}, {"change": "Legacy diff description"}):
+            self.write_input(self.pair(mechanism_card=card))
+            with self.subTest(card=card), self.assertRaisesRegex(ValueError, "diff assessment"):
+                self.main("--prepare-only", stdlib=True)
         self.write_input(self.pair())
         self.output.mkdir()
         manifest = self.output / "manifest.json"
@@ -300,15 +312,9 @@ class SolutionVendiTests(unittest.TestCase):
             return {"backend": "fixture", "model": model_name}
 
         with patch.object(runtime.Summarizer, "summarize_solution", autospec=True, side_effect=summarize), \
-                patch.object(runtime.Summarizer, "summarize", side_effect=AssertionError("legacy summary")) as old_summary, \
-                patch.object(runtime.Summarizer, "assess_change", side_effect=AssertionError("diff assessment")) as old_diff, \
-                patch("autoresearch_vendi.changes.build_change_packet", side_effect=AssertionError("diff packet")) as packet, \
                 patch.object(runtime, "embed_solution_samples", side_effect=embed) as embeddings:
             self.assertEqual(self.main(raw=True), 0)
         self.assertEqual(len(observed), 4)
-        old_summary.assert_not_called()
-        old_diff.assert_not_called()
-        packet.assert_not_called()
         embeddings.assert_called_once()
         self.assertEqual(self.snapshot(self.raw), before)
         self.assertFalse((self.output / "change_evidence").exists())
@@ -317,6 +323,76 @@ class SolutionVendiTests(unittest.TestCase):
         self.assertEqual(manifest["summary_api_calls"], 4)
         self.assertEqual(len(self.csv_rows("solution_cards.csv")), 4)
         self.assertEqual(len(self.csv_rows("full_run_scores.csv")), 2)
+
+
+    def test_single_candidate_per_run_has_no_score_or_fake_success(self):
+        self.write_input([self.sample("baseline", "one", [1, 0]), self.sample("analogy", "one", [0, 1])])
+        self.assertEqual(self.main(), 2)
+        self.assertEqual(self.csv_rows("run_scores.csv"), [])
+        self.assertTrue(all(not row["delta"] for row in self.csv_rows("comparisons.csv")))
+
+
+    def test_duplicate_pair_arm_runs_are_rejected_without_picking_best(self):
+        rows = self.pair()
+        rows.append(self.sample("analogy", "third", [0, 1], run_id="another-analogy-run"))
+        self.write_input(rows)
+        with self.assertRaisesRegex(ValueError, "Multiple runs"):
+            self.main()
+        self.assertFalse(self.output.exists())
+
+
+    def test_valid_only_preserves_excluded_nonscoring_rows(self):
+        self.write_input([self.sample("baseline", "one", [1, 0], is_valid=False),
+                          self.sample("baseline", "two", [0, 1], is_valid=False)])
+        self.assertEqual(self.main("--valid-only"), 2)
+        coverage = self.csv_rows("coverage.csv")[0]
+        self.assertEqual(coverage["n_excluded"], "2")
+        self.assertEqual(coverage["n_available"], "0")
+        self.assertEqual(self.csv_rows("run_scores.csv"), [])
+
+
+    def test_reembedding_keeps_eligible_text_ready_but_never_revives_exclusions(self):
+        import autoresearch_vendi.runtime as runtime
+        self.write_input(self.pair() + [self.sample("baseline", "excluded", [0, 1], is_valid=False)])
+        observed = []
+
+        def fake_embed(samples, cache, model_name, **kwargs):
+            for row in samples:
+                observed.append((row["candidate_id"], row.get("extraction_status")))
+                if row["candidate_id"] == "excluded":
+                    self.assertEqual(row["extraction_status"], "excluded")
+                    continue
+                self.assertEqual(row.get("extraction_status"), "ok")
+                self.assertNotIn("embedding", row)
+                row.update(embedding=[1.0, 0.0] if row["arm"] == "baseline" or row["candidate_id"] == "one" else [0.0, 1.0],
+                           embedding_model="fake-reembedded-v1")
+            return {"backend": "fixture"}
+
+        with patch.object(runtime, "embed_samples", side_effect=fake_embed):
+            self.assertEqual(self.main("--embedding-backend", "local", "--valid-only", "--reembed"), 0)
+        self.assertEqual(len(observed), 5)
+        self.assertEqual(sum(int(row["n_excluded"]) for row in self.csv_rows("coverage.csv")), 1)
+
+
+    def test_saved_exclusions_survive_input_and_reembedding_without_reapplying_filters(self):
+        self.write_input([self.sample("baseline", "one", [1, 0], is_valid=False,
+                                      extraction_status="excluded", error="excluded_valid_only"),
+                          self.sample("baseline", "two", [0, 1], is_valid=False,
+                                      extraction_status="excluded", error="excluded_valid_only")])
+        self.assertEqual(self.main("--reembed"), 2)
+        self.assertEqual(self.csv_rows("run_scores.csv"), [])
+        coverage = self.csv_rows("coverage.csv")[0]
+        self.assertEqual(coverage["n_excluded"], "2")
+        self.assertEqual(coverage["n_available"], "0")
+
+
+    def test_empty_input_exits_two_without_fabricated_statistics(self):
+        self.write_input([])
+        self.assertEqual(self.main(), 2)
+        self.assertEqual(self.csv_rows("run_scores.csv"), [])
+        self.assertEqual(self.csv_rows("comparisons.csv"), [])
+        self.assertEqual(json.loads((self.output / "manifest.json").read_text())["n_samples"], 0)
+
 
 
 if __name__ == "__main__":

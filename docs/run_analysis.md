@@ -78,6 +78,4 @@ GPU、起始 commit、初始 seed、资源、环境 lock、预算或主 agent �
 
 后续更换任务需继续导出同一 trial/receipt 结构，并在指标文件中填写该任务的 `metric_version`、`score`、`maximize`；分析代码没有 Jigsaw 指标或 arm 列表的硬编码。每次重跑会更新输出表和图，并清理本脚本上次记录但本次不再适用的图；原始下载结果不变。无可配对数据时只输出审计表和说明，退出码为 1。
 
-候选机制多样性另用根目录 `compare_vendi.py`，先运行 `python3 compare_vendi.py --prepare-only` 审查父节点映射。它保留失败训练的源码，与这里的验证分数分析使用不同的有效性标准；详见 [Vendi 分析说明](compare_vendi.md)。
-
-要比较各 run 的完整解法集合，使用 `compare_solution_vendi.py`，不需要 parent 映射；见 [完整方案 Vendi 说明](solution_vendi.md)。
+候选机制多样性使用根目录 `compare_solution_vendi.py` 比较各 run 的完整解法集合，可先运行 `python3 compare_solution_vendi.py --prepare-only --manifest jigsaw_comparisons.csv` 审查候选覆盖率。它保留失败训练的可信源码，与这里的验证分数分析使用不同的有效性标准；见 [完整方案 Vendi 说明](solution_vendi.md)。

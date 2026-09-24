@@ -17,27 +17,12 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from autoresearch_vendi import runtime
-from autoresearch_vendi.assessment import assessment_text, preserve_assessment_status
-from autoresearch_vendi.changes import build_change_packet
 from autoresearch_vendi.metrics import compare_samples, vendi_score
 
 
 def card():
-    return dict(model="linear classifier", objective="binary cross entropy", data="",
-                update="gradient descent", inference="sigmoid", change="", evidence=["CHILD:1"])
-
-
-def change_case():
-    parent = "loss = binary_loss(logits, targets)\nloss.backward()\n"
-    child = "loss = weighted_loss(logits, targets)\nloss.backward()\n"
-    packet = build_change_packet(parent, child)
-    result = dict(status="changed", reason="Loss computation changes before backward.", changes=[dict(
-        kind="new_mechanism", description="Use weighted classification loss before gradient computation.",
-        evidence=[dict(ref="PARENT:1", quote=parent.splitlines()[0]),
-                  dict(ref="CHILD:1", quote=child.splitlines()[0]),
-                  dict(ref="CHILD:2", quote="loss.backward()")],
-        execution="connected", execution_evidence=["CHILD:2"])])
-    return packet, result
+    return dict(title="Linear classifier", summary="Train a linear classifier with binary cross entropy.",
+                evidence=["SOURCE:1"])
 
 
 def row(text="linear classifier", **values):
@@ -53,54 +38,24 @@ class RuntimeTests(unittest.TestCase):
         sleep.start()
         self.addCleanup(sleep.stop)
 
-    def test_import_and_no_change_need_no_installed_model_libraries(self):
+    def test_import_and_cached_summary_need_no_installed_model_libraries(self):
+        runtime.Summarizer(self.cache, ask=lambda prompt: json.dumps(card())).summarize_solution("SOURCE:1: train()")
         root = Path(__file__).resolve().parents[1]
         result = subprocess.run([sys.executable, "-B", "-S", "-c",
             "from pathlib import Path; import sys; "
             "from autoresearch_vendi.runtime import Summarizer; "
-            "from autoresearch_vendi.changes import build_change_packet; "
-            "s=Summarizer(Path('.')); "
-            "assert s.assess_change(build_change_packet('x=1', 'x=1'))['status']=='no_change'; "
-            "assert not ({'numpy','openai','torch','sentence_transformers'} & sys.modules.keys())"],
+            "s=Summarizer(Path(sys.argv[1])); "
+            "assert s.summarize_solution('SOURCE:1: train()')[0]['title']=='Linear classifier'; "
+            "assert not ({'numpy','openai','torch','sentence_transformers'} & sys.modules.keys())", str(self.cache)],
             cwd=root, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_three_state_assessment_and_fast_paths_are_lazy(self):
-        ask = Mock()
-        summarizer = runtime.Summarizer(self.cache, ask=ask)
-        unchanged = build_change_packet("x = 1\n", "# comment\nx = 1\n")
-        self.assertEqual(summarizer.assess_change(unchanged)["status"], "no_change")
-        unavailable = build_change_packet("x = 1\n", "x = 2\n", max_chars=1)
-        self.assertEqual(summarizer.assess_change(unavailable)["status"], "insufficient_evidence")
-        ask.assert_not_called()
-        self.assertEqual(summarizer.calls, 0)
-        self.assertIsNone(summarizer._client)
-        packet, result = change_case()
-        ask.return_value = json.dumps(result)
-        self.assertEqual(summarizer.assess_change(packet), result)
-        self.assertIn("weighted classification", assessment_text(result))
-
-    def test_summary_cache_is_validated_and_requires_no_key(self):
-        ask = Mock(return_value=json.dumps(card()))
-        first = runtime.Summarizer(self.cache, ask=ask)
-        self.assertEqual(first.summarize("CHILD:1: train()"), (card(), 1))
-        with patch.dict(sys.modules, {"openai": None}):
-            second = runtime.Summarizer(self.cache)
-            self.assertEqual(second.summarize("CHILD:1: train()"), (card(), 1))
-        self.assertEqual(second.calls, 0)
-        self.assertEqual(ask.call_count, 1)
-        path = next((self.cache / "summaries").glob("*.json"))
-        path.write_text('{"model":"incomplete"}')
-        with self.assertRaisesRegex(ValueError, "Invalid cached"):
-            first.summarize("CHILD:1: train()")
-        self.assertEqual(ask.call_count, 1)
 
     def test_missing_key_is_a_lazy_configuration_error_without_sdk_details(self):
         with patch.dict(os.environ, {}, clear=True), patch.dict(sys.modules, {"openai": None}):
             summarizer = runtime.Summarizer(self.cache)
             self.assertIsNone(summarizer._client)
             with self.assertRaisesRegex(ValueError, "Vendi API key is missing"):
-                summarizer.summarize("CHILD:1: train()")
+                summarizer.summarize_solution("SOURCE:1: train()")
         self.assertEqual(summarizer.calls, 1)
 
     def test_source_model_endpoint_api_prompt_invalidate_summary_cache(self):
@@ -108,41 +63,20 @@ class RuntimeTests(unittest.TestCase):
         for kwargs, source in [({}, "one"), ({}, "two"), ({"model":"other"}, "one"),
                                ({"base_url":"https://fixture.invalid/v1"}, "one"),
                                ({"api":"chat"}, "one")]:
-            runtime.Summarizer(self.cache, ask=ask, **kwargs).summarize(source)
-        with patch.object(runtime, "SUMMARY_PROMPT", runtime.SUMMARY_PROMPT + " Updated."):
-            runtime.Summarizer(self.cache, ask=ask).summarize("one")
+            runtime.Summarizer(self.cache, ask=ask, **kwargs).summarize_solution("SOURCE:1: " + source)
+        with patch.object(runtime, "SOLUTION_PROMPT", runtime.SOLUTION_PROMPT + " Updated."):
+            runtime.Summarizer(self.cache, ask=ask).summarize_solution("SOURCE:1: one")
         self.assertEqual(ask.call_count, 6)
 
-    def test_change_cache_validates_evidence_and_packet_version(self):
-        packet, result = change_case()
-        ask = Mock(return_value=json.dumps(result))
-        summarizer = runtime.Summarizer(self.cache, ask=ask)
-        summarizer.assess_change(packet)
-        runtime.Summarizer(self.cache).assess_change(packet)
-        self.assertEqual(ask.call_count, 1)
-        updated = copy.deepcopy(packet)
-        updated["version"] += "-updated"
-        summarizer.assess_change(updated)
-        self.assertEqual(ask.call_count, 2)
-        for path in (self.cache / "changes").glob("*.json"):
-            bad = copy.deepcopy(result)
-            bad["changes"][0]["evidence"][0]["quote"] = "fabricated"
-            path.write_text(json.dumps(bad))
-        with self.assertRaisesRegex(ValueError, "Invalid cached"):
-            summarizer.assess_change(packet)
-        self.assertEqual(ask.call_count, 2)
-
     def test_transport_and_evidence_correction_share_three_attempts(self):
-        packet, result = change_case()
-        bad = copy.deepcopy(result)
-        bad["changes"][0]["evidence"][0]["quote"] = "fabricated"
-        ask = Mock(side_effect=[RuntimeError("secret fixture credential"), json.dumps(bad), json.dumps(result)])
+        bad = dict(card(), evidence=["SOURCE:99"])
+        ask = Mock(side_effect=[RuntimeError("secret fixture credential"), json.dumps(bad), json.dumps(card())])
         summarizer = runtime.Summarizer(self.cache, ask=ask)
-        self.assertEqual(summarizer.assess_change(packet), result)
+        self.assertEqual(summarizer.summarize_solution("SOURCE:1: train()"), (card(), 1))
         self.assertEqual(summarizer.calls, 3)
         self.assertNotIn("secret fixture credential", ask.call_args_list[1].args[0])
-        self.assertIn("does not match source", ask.call_args_list[2].args[0])
-        self.assertEqual(len(list((self.cache / "changes").glob("*.json"))), 1)
+        self.assertIn("unavailable source lines", ask.call_args_list[2].args[0])
+        self.assertEqual(len(list((self.cache / "solution_summaries").glob("*.json"))), 1)
 
     def test_final_errors_do_not_expose_provider_body_or_cache_failure(self):
         for side_effect, error_class in [(RuntimeError("secret endpoint credential"), RuntimeError),
@@ -150,35 +84,10 @@ class RuntimeTests(unittest.TestCase):
             ask = Mock(side_effect=side_effect) if isinstance(side_effect, Exception) else Mock(return_value=side_effect)
             summarizer = runtime.Summarizer(self.cache, ask=ask)
             with self.assertRaises(error_class) as error:
-                summarizer.summarize("CHILD:1: train()")
+                summarizer.summarize_solution("SOURCE:1: train()")
             self.assertNotIn("secret", str(error.exception))
             self.assertEqual(ask.call_count, 3)
             self.assertEqual(list(self.cache.rglob("*.json")), [])
-
-    def test_nontrivial_no_change_and_unconnected_mechanisms_are_not_scored(self):
-        packet, result = change_case()
-        for answer in [dict(status="no_change", reason="No substantive change.", changes=[]), result]:
-            if answer.get("changes"):
-                answer["changes"][0].update(execution="definition_only", execution_evidence=[])
-            with tempfile.TemporaryDirectory() as directory:
-                summarizer = runtime.Summarizer(Path(directory), ask=lambda prompt: json.dumps(answer))
-                checked = summarizer.assess_change(packet)
-            self.assertEqual(checked["status"], "insufficient_evidence")
-            sample = dict(text="stale", embedding=[1, 0], embedding_model="old", mechanism_card=checked)
-            self.assertTrue(preserve_assessment_status(sample))
-            self.assertEqual(sample["text"], "")
-            self.assertNotIn("embedding", sample)
-
-    def test_source_chunks_cover_all_characters_and_merge_one_candidate(self):
-        source = "CHILD:1: " + "x" * 45 + "\nCHILD:2: " + "y" * 45
-        self.assertEqual("".join(runtime.split_source(source, 30)), source)
-        ask = Mock(return_value=json.dumps(card()))
-        summarizer = runtime.Summarizer(self.cache, ask=ask)
-        summarizer.chunk_chars = 30
-        result, count = summarizer.summarize(source)
-        self.assertEqual(result, card())
-        self.assertGreater(count, 1)
-        self.assertIn("Merge evidence for ONE candidate", ask.call_args.args[0])
 
     def test_modern_api_selection_and_client_settings(self):
         for api in ("responses", "chat"):
@@ -193,11 +102,11 @@ class RuntimeTests(unittest.TestCase):
                 with patch.dict(sys.modules, {"openai": module}):
                     summarizer = runtime.Summarizer(self.cache / api, api=api, base_url="https://fixture.invalid/v1/", api_key="fixture")
                     module.OpenAI.assert_not_called()
-                    self.assertEqual(summarizer.summarize("CHILD:1: train()")[0], card())
+                    self.assertEqual(summarizer.summarize_solution("SOURCE:1: train()")[0], card())
                 module.OpenAI.assert_called_once_with(api_key="fixture", base_url="https://fixture.invalid/v1", max_retries=0, timeout=120)
                 if api == "responses":
                     self.assertEqual(responses.call_args.kwargs["model"], "gpt-5.6-terra")
-                    self.assertEqual(responses.call_args.kwargs["instructions"], runtime.SUMMARY_PROMPT)
+                    self.assertEqual(responses.call_args.kwargs["instructions"], runtime.SOLUTION_PROMPT)
                     self.assertFalse(responses.call_args.kwargs["store"])
                     chat.assert_not_called()
                 else:
@@ -293,19 +202,16 @@ class EmbeddingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "dimensions"):
                 self.embed([row(embedding=[1, 0], embedding_model="one"), row(embedding=[1, 0, 0], embedding_model="one")])
 
-    def test_reembed_preserves_coverage_and_non_scoring_but_replaces_all_vectors(self):
+    def test_reembed_preserves_coverage_but_replaces_all_vectors(self):
         samples = [row(embedding=[0, 1], embedding_model="old", source_hash="unchanged"),
                    dict(text="", extraction_status="missing_source", error="missing_source"),
-                   dict(text="", extraction_status="error", error="model_failed"),
-                   dict(text="stale", extraction_status="ok", assessment_status="no_change", embedding=[1, 0])]
+                   dict(text="", extraction_status="error", error="model_failed")]
         runtime.prepare_reembedding(samples)
         self.assertNotIn("embedding", samples[0])
         self.assertEqual(samples[0]["extraction_status"], "ok")
         self.assertEqual(samples[0]["source_hash"], "unchanged")
         self.assertEqual(samples[1]["extraction_status"], "missing_source")
         self.assertEqual(samples[2]["error"], "model_failed")
-        self.assertEqual(samples[3]["extraction_status"], "no_change")
-        self.assertNotIn("embedding", samples[3])
         with self.encoder() as calls:
             self.embed(samples)
         self.assertEqual(samples[0]["embedding"], [1.0, 0.0])
@@ -317,11 +223,33 @@ class EmbeddingTests(unittest.TestCase):
             runtime.prepare_reembedding(invalid)
         self.assertEqual(invalid, before)
 
+    def test_legacy_representations_cannot_be_embedded_or_reembedded(self):
+        legacy = [dict(stage="draft"), dict(stage="improve"), dict(representation_version="diff-v1"),
+                  dict(assessment_status="changed"), dict(assessment_status="no_change"),
+                  dict(mechanism_card={"status":"insufficient_evidence"}),
+                  dict(mechanism_card={"model":"linear", "change":"weighted loss"})]
+        operations = [runtime.prepare_reembedding, self.embed,
+                      lambda samples: runtime.embed_solution_samples(samples, self.cache)]
+        for metadata in legacy:
+            for operation in operations:
+                samples = [row(embedding=[1, 0], embedding_model="old"),
+                           row(embedding=[0, 1], embedding_model="old", **metadata)]
+                before = copy.deepcopy(samples)
+                with self.subTest(metadata=metadata, operation=operation):
+                    with self.assertRaisesRegex(ValueError, "Only complete solution representations"):
+                        operation(samples)
+                    self.assertEqual(samples, before)
+        valid = row(stage="solution", representation_version="solution-v1", mechanism_card=card(),
+                    embedding=[0, 1], embedding_model="old")
+        runtime.prepare_reembedding([valid])
+        self.assertNotIn("embedding", valid)
+        self.assertEqual(valid["extraction_status"], "ok")
+
     def test_reembed_and_embedding_never_revive_excluded_samples(self):
         excluded = [dict(text="linear classifier", extraction_status="excluded", embedding=[0, 1],
                          embedding_model="old", error="filtered"),
                     dict(text="", extraction_status="excluded", embedding=[1, 0], embedding_model="old"),
-                    dict(text="stale", extraction_status="excluded", assessment_status="no_change")]
+                    dict(text="stale", extraction_status="excluded", error="filtered")]
         before = copy.deepcopy(excluded)
         runtime.prepare_reembedding(excluded)
         with patch.dict(sys.modules, {"sentence_transformers": None}):
@@ -341,6 +269,16 @@ class SolutionSummaryTests(unittest.TestCase):
     def card(self, evidence=None):
         return {"title": "Weighted linear classifier", "summary": "Train a linear classifier with a weighted binary loss.",
                 "evidence": evidence or ["SOURCE:1-2"]}
+
+    def test_existing_solution_cache_key_is_preserved(self):
+        source = "SOURCE:1: model = Linear()\nSOURCE:2: train(model)\n"
+        # This key was produced by solution-v1 before the legacy paths were removed.
+        key = "151f5fe39ca0929eb815d992b75b9fd8254b1d8b6bd34e03c369c690f6f35847"
+        runtime.write_json(self.cache / "solution_summaries" / (key + ".json"), self.card())
+        with patch.dict(os.environ, {}, clear=True), patch.dict(sys.modules, {"openai": None}):
+            summarizer = runtime.Summarizer(self.cache)
+            self.assertEqual(summarizer.summarize_solution(source), (self.card(), 1))
+            self.assertEqual(summarizer.calls, 0)
 
     def test_solution_cache_is_distinct_and_requires_no_key_on_hit(self):
         source = "SOURCE:1: model = Linear()\nSOURCE:2: train(model)\n"
@@ -402,8 +340,6 @@ class SolutionSummaryTests(unittest.TestCase):
         self.assertEqual(count, len(fragments))
         self.assertTrue(all(system == runtime.SOLUTION_PROMPT for system in systems))
         self.assertNotIn("PARENT", "\n".join(prompts + systems))
-        self.assertNotIn(runtime.CHANGE_PROMPT, systems)
-        self.assertNotIn(runtime.SUMMARY_PROMPT, systems)
         self.assertEqual(result["summary"], self.card()["summary"])
 
     def test_bad_schema_lengths_and_references_are_rejected(self):
@@ -463,6 +399,18 @@ class SolutionEmbeddingTests(unittest.TestCase):
 
     def embed(self, samples, **kwargs):
         return runtime.embed_solution_samples(samples, self.cache, **kwargs)
+
+    def test_existing_solution_embedding_cache_and_model_identity_are_preserved(self):
+        # These identities were produced by solution-embedding-v1 before migration.
+        key = "297423eea2b93ca40872a58c1d9722bb8a1d94ac8e6bde10c255127dcca53ce6"
+        model = "be26403562334b072b5ffdd7e71910b977f7ea42c795f7542affa2991ed76d2d"
+        runtime.write_json(self.cache / "solution_embeddings" / (key + ".json"), [1.0, 0.0])
+        samples = [row("weighted classifier")]
+        with patch.dict(os.environ, {}, clear=True), patch.dict(sys.modules, {"openai": None}):
+            identity = self.embed(samples)
+        self.assertEqual(samples[0]["embedding"], [1.0, 0.0])
+        self.assertEqual(samples[0]["embedding_model"], model)
+        self.assertEqual(identity["dimensions"], 2)
 
     def test_duplicate_candidates_keep_frequency_and_cache_needs_no_key(self):
         samples = [row("weighted classifier", candidate_id="one"), row("weighted classifier", candidate_id="two")]
@@ -595,7 +543,7 @@ class NumericalTests(unittest.TestCase):
     def test_equal_size_paired_comparison_and_missing_data(self):
         def samples(run_id, arm, vectors, pair_id="pair"):
             return [dict(task="task", run_id=run_id, arm=arm, pair_id=pair_id,
-                         stage="improve", view="implementation", embedding=vector) for vector in vectors]
+                         stage="solution", view="implementation", embedding=vector) for vector in vectors]
         values = (samples("b", "baseline", [[1, 0]] * 4)
                   + samples("a", "analogy", [[1, 0], [0, 1]]))
         scores, comparisons = compare_samples(values, baseline="baseline")

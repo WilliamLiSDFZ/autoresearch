@@ -1,6 +1,6 @@
 # 完整方案 Vendi 分析
 
-`compare_solution_vendi.py` 衡量每个 run 尝试过的完整解法是否多样。不需要 `parent_map.csv`，也不读取 analogy 的检索报告或采纳声明。它与原来的 `compare_vendi.py` 变更分析共享源码验证、统计和绘图代码，默认输出与缓存分开保存。
+`compare_solution_vendi.py` 是 Vendi 分析的唯一入口，衡量每个 run 尝试过的完整解法是否多样。它独立读取每份候选源码，不需要父节点关系，也不读取 analogy 的检索报告或采纳声明。
 
 ## 运行
 
@@ -17,9 +17,9 @@ python3 compare_solution_vendi.py --prepare-only
 uv run --script compare_solution_vendi.py
 ```
 
-默认读取 `~/nautilus/autoresearch-result`，输出到 `results/vendi-solutions/`，缓存到 `results/vendi-solutions-cache/`。`uv run --script` 创建独立分析环境，不修改训练用的 `uv.lock`。等价入口是 `compare_vendi.py --mode solutions`。
+默认读取 `~/nautilus/autoresearch-result`，输出到 `results/vendi-solutions/`，缓存到 `results/vendi-solutions-cache/`。`uv run --script` 创建独立分析环境，不修改训练用的 `uv.lock`。原有 `compare_solution_vendi.py` 命令、完整方案摘要和缓存继续适用。
 
-不要传 `--parent-map` 或 `--stages`。每个 trial 都是一个完整方案，首次实现与后续实现共同进入 `stage=solution` 的集合。旧 diff 输出或摘要不能作为完整方案输入，脚本会拒绝混用两种分析目录。
+不再提供 `--mode`、`--parent-map` 或 `--stages` 参数。每个 trial 都是一个完整方案，首次实现与后续实现共同进入 `stage=solution` 的集合。旧 draft/improve 的 diff 输出或摘要不能作为 `--input` 输入，也不能复用旧变更分析的输出目录；需要从原始 run 源码提取完整方案摘要。
 
 ## 模型和接口
 
@@ -62,7 +62,7 @@ uv run --with 'sentence-transformers>=5.0' --script compare_solution_vendi.py \
 4. 计算 cosine 相似度矩阵的标准 q=1 Vendi。重复机制在不同 trial 中保留频次，同一候选重复导出才去重。
 5. 每个 study/task/源码协议组内，至少有两个可用候选的 run 构成固定集合，共用 `m=2..最少候选数`。组合数不超过 `--repeats`（默认 1000）时穷举，否则进行固定 seed 的不放回子集抽样。
 
-例如 baseline 有 11 个有效摘要、analogy 有 7 个时，m=7 对 baseline 的 330 个子集全部计算，analogy 使用唯一的 7 个候选集合。取子集 Vendi 均值进行配对比较；图中子集范围不是实验效果置信区间。全量分数另存 `full_run_scores.csv`，候选数不同时仅作描述。
+例如 baseline 有 11 个有效摘要、analogy 有 7 个时，m=7 对 baseline 的 330 个子集全部计算，analogy 使用唯一的 7 个候选集合。取子集 Vendi 均值进行配对比较；paired 图使用整个固定集合的最大共同 m，图中子集范围不是实验效果置信区间。全量分数另存 `full_run_scores.csv`，候选数不同时仅作描述。
 
 主分析保留有可信源码的失败/pending 训练候选，不将它们视为成功。只看具有完整成功回执的候选可以另跑敏感性分析：
 
@@ -84,6 +84,18 @@ uv run --script compare_solution_vendi.py --runs /path/to/runs \
 ```
 
 GPU、起始 commit、预算和主 agent 模型等差异列在 `comparability.csv`。独立 run 才能提供实验重复；同一 run 的 trial 或抽样子集不能当作独立实验。当前输出是描述性比较，不提供因果结论或显著性检验。
+
+### 当前 Jigsaw 六对实验
+
+当前下载目录包含中断后的重跑，使用仓库的 `jigsaw_comparisons.csv` 明确排除旧尝试，保留 pair001–006；清单依据见 [结果分析说明](run_analysis.md#当前-jigsaw-重跑结果)。使用已有摘要缓存和本地 MiniLM 的命令：
+
+```bash
+uv run --with 'sentence-transformers>=5.0' --script compare_solution_vendi.py \
+  --manifest jigsaw_comparisons.csv \
+  --embedding-backend local --out results/vendi-solutions-local
+```
+
+缓存缺失时仍会调用摘要 API；MiniLM 未缓存时仍会下载模型。当前六对结果的最大共同候选数为 m=7；后续新增或排除 run 后，以新输出中的实际共同 m 为准。
 
 ## 输出与复算
 
